@@ -2,9 +2,6 @@ package config
 
 import (
 	"crypto/rand"
-	"slices"
-
-	"github.com/jesseduffield/generics/slices"
 )
 
 type Config struct {
