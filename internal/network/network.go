@@ -3,16 +3,19 @@ package network
 import (
 	"context"
 	"crypto/ecdsa"
+	"sync"
 	"udisend/model"
 )
 
 type Network struct {
-	id          string
-	publicAuth  *ecdsa.PublicKey
-	privateAuth *ecdsa.PrivateKey
-	encode      func([]byte) ([]byte, error)
-	decode      func([]byte) ([]byte, error)
-	inbox       chan model.NetworkSignal
+	id             string
+	publicAuth     *ecdsa.PublicKey
+	privateAuth    *ecdsa.PrivateKey
+	encode         func([]byte) ([]byte, error)
+	decode         func([]byte) ([]byte, error)
+	inbox          chan model.NetworkSignal
+	interactionsMu sync.RWMutex
+	interactions   map[string]interaction
 }
 
 func New(
