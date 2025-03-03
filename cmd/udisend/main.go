@@ -11,7 +11,10 @@ import (
 
 func main() {
 	cfg := config.NewConfig()
-	privateAuth, pubAuth, err := crypt.LoadOrGenerateKeys(cfg.PrivateAuthKeyFile, cfg.PrivateAuthKeyFile)
+	privateAuth, pubAuth, err := crypt.LoadOrGenerateKeys(
+		cfg.PrivateAuthKeyFile,
+		cfg.PrivateAuthKeyFile,
+	)
 	if err != nil {
 		log.Fatalf("error load auth keys: %v", err)
 	}
@@ -19,9 +22,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("error generate rsa keys: %v", err)
 	}
-	nw := network.New(cfg.ID, pubAuth, privateAuth, func(b []byte) ([]byte, error) {
-		return crypt.DecryptMessage(b, privateRSA)
-	}, publicRSA)
+	nw := network.New(
+		cfg.ID,
+		pubAuth,
+		privateAuth,
+		func(b []byte) ([]byte, error) {
+			return crypt.DecryptMessage(b, privateRSA)
+		},
+		publicRSA,
+	)
 
 	ctx := context.Background()
 
