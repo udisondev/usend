@@ -1,0 +1,244 @@
+package network
+
+import (
+	"context"
+	"slices"
+	"sync"
+	"time"
+	"udisend/model"
+	"udisend/pkg/logger"
+	"udisend/pkg/span"
+)
+
+type interaction struct {
+	id string
+
+	stateMu sync.RWMutex
+	state   interactionState
+
+	connectMu      sync.Mutex
+	waitOffersList []string
+
+	disconnect func()
+
+	send chan<- model.NetworkSignal
+}
+
+func (i *interaction) addWaitOffersList(from string) {
+	i.connectMu.Lock()
+	defer i.connectMu.Unlock()
+
+	i.waitOffersList = append(i.waitOffersList, from)
+}
+
+type connection interface {
+	ID() string
+	Interact(
+		ctx context.Context,
+		out <-chan model.NetworkSignal,
+	) <-chan model.IncomeSignal
+}
+
+type interactionState uint8
+
+const (
+	NotVerified interactionState = iota
+	NotConnected
+	Connected
+)
+
+func (i *interaction) setState(new interactionState) {
+	i.stateMu.Lock()
+	defer i.stateMu.Unlock()
+	i.state = new
+}
+
+func (i *interaction) applyFilters(in <-chan model.IncomeSignal) <-chan model.IncomeSignal {
+	filters := []func(in <-chan model.IncomeSignal) <-chan model.IncomeSignal{
+		i.muteNotVerifiedFilter,
+		i.offersFilter,
+		i.messagesPerMinuteFilter,
+	}
+
+	out := in
+	for _, filter := range filters {
+		out = filter(out)
+	}
+
+	return out
+}
+
+func (n *Network) clusterBroadcast(s model.NetworkSignal) {
+	n.interatcionsMu.RLock()
+	defer n.interatcionsMu.RUnlock()
+
+	for _, member := range n.interactions {
+		member.send <- s
+	}
+}
+
+func (n *Network) disconnect(ID string) {
+	n.interatcionsMu.Lock()
+	defer n.interatcionsMu.Unlock()
+
+	member, ok := n.interactions[ID]
+	if !ok {
+		return
+	}
+	delete(n.interactions, ID)
+	member.disconnect()
+}
+
+func (n *Network) send(ID string, s model.NetworkSignal) {
+	ctx := span.Init("node.Send to '%s'")
+	logger.Debugf(
+		ctx,
+		"Going to send '%s' signal",
+		s.Type.String(),
+	)
+
+	n.interatcionsMu.RLock()
+	defer n.interatcionsMu.RUnlock()
+
+	m, ok := n.interactions[ID]
+	if !ok {
+		logger.Debugf(
+			nil,
+			"Member '%s' not found",
+			ID,
+		)
+		return
+	}
+
+	select {
+	case m.send <- s:
+	default:
+		logger.Debugf(
+			nil,
+			"Disconnecting '%s' (low throuput)",
+			ID,
+		)
+		n.disconnect(ID)
+	}
+}
+
+func (n *Network) addConnection(
+	ctx context.Context,
+	conn connection,
+	disconnect func(),
+) {
+	out := make(chan model.NetworkSignal)
+	go func() {
+		<-ctx.Done()
+		close(out)
+
+		n.interatcionsMu.Lock()
+		defer n.interatcionsMu.Unlock()
+
+		delete(n.interactions, conn.ID())
+	}()
+
+	i := interaction{
+		send:       out,
+		disconnect: disconnect,
+	}
+
+	n.interatcionsMu.Lock()
+	n.interactions[conn.ID()] = &i
+	n.interatcionsMu.Unlock()
+
+	connInbox := conn.Interact(ctx, out)
+
+	go func() {
+		defer disconnect()
+		for in := range i.applyFilters(connInbox) {
+			n.inbox <- in
+		}
+	}()
+}
+
+func (i *interaction) muteNotVerifiedFilter(in <-chan model.IncomeSignal) <-chan model.IncomeSignal {
+	out := make(chan model.IncomeSignal)
+
+	go func() {
+		defer close(out)
+		for msg := range in {
+			i.stateMu.RLock()
+			state := i.state
+			i.stateMu.RUnlock()
+
+			if state == NotVerified {
+				return
+			}
+			out <- msg
+		}
+
+	}()
+
+	return out
+
+}
+
+func (i *interaction) offersFilter(in <-chan model.IncomeSignal) <-chan model.IncomeSignal {
+	out := make(chan model.IncomeSignal)
+
+	go func() {
+		defer close(out)
+		for msg := range in {
+			i.stateMu.RLock()
+			state := i.state
+			i.stateMu.RUnlock()
+
+			if state == Connected {
+				out <- msg
+				continue
+			}
+
+			if msg.Type != model.SendOfferSignal {
+				return
+			}
+
+			if !slices.Contains(i.waitOffersList, string(msg.Payload[:257])) {
+				return
+			}
+
+			if i.id != string(msg.Payload[257:513]) {
+				return
+			}
+
+			out <- msg
+		}
+	}()
+
+	return out
+}
+
+func (i *interaction) messagesPerMinuteFilter(in <-chan model.IncomeSignal) <-chan model.IncomeSignal {
+	out := make(chan model.IncomeSignal)
+
+	go func() {
+		defer close(out)
+
+		counter := 0
+		for {
+			select {
+			case <-time.After(time.Minute):
+				counter = 0
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+
+				if counter > maxMessagesPerMinute {
+					return
+				}
+
+				counter++
+
+				out <- msg
+			}
+		}
+	}()
+
+	return out
+}
