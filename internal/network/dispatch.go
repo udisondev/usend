@@ -6,20 +6,37 @@ import (
 	"udisend/pkg/span"
 )
 
-var handlers = map[model.SignalType]func(*Network, model.NetworkSignal) error{
-	model.DoVerify: DoVerify,
+var handlers = map[model.SignalType]func(*Network, model.IncomeSignal){
+	model.DoVerifySignal:               doVerify,
+	model.SolveChallengeSignal:         solveChallenge,
+	model.TestChallengeSignal:          testChallenge,
+	model.NewConnectionSignal:          newConnection,
+	model.GenerateConnectionSignSignal: generateConnection,
+	model.MakeOfferSignal:              makeOffer,
+	model.HandleOfferSignal:            handleOffer,
+	model.HandleAnswerSignal:           handleAnswer,
+	model.ConnectionEstablishedSignal:  connectionEstablished,
+	model.PingSignal:                   ping,
+	model.PongSignal:                   pong,
 }
 
-func (n *Network) dispatch(sig model.NetworkSignal) {
+func (n *Network) dispatch(s model.IncomeSignal) {
 	ctx := span.Init("network.Dispatch")
-	h, ok := handlers[sig.Type]
+	h, ok := handlers[s.Type]
 	if !ok {
-		logger.Debugf(ctx, "Has no suittable handler for '%s' type", sig.Type.String())
+		logger.Debugf(
+			ctx,
+			"Has no suittable handler for '%s' type",
+			s.Type.String(),
+		)
 		return
 	}
 
-	err := h(n, sig)
-	if err != nil {
-		logger.Debugf(ctx, "Error handle '%s' signal", sig.Type.String())
-	}
+	h(n, s)
+}
+
+func (n *Network) dropReaction(key string) {
+	n.reactionsMu.Lock()
+	defer n.reactionsMu.Unlock()
+	delete(n.reactions, key)
 }
