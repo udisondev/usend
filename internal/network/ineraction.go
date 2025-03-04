@@ -5,7 +5,6 @@ import (
 	"slices"
 	"sync"
 	"time"
-	"udisend/model"
 	"udisend/pkg/logger"
 	"udisend/pkg/span"
 )
@@ -21,7 +20,7 @@ type interaction struct {
 
 	disconnect func()
 
-	send chan<- model.NetworkSignal
+	send chan<- networkSignal
 }
 
 func (i *interaction) addWaitOffersList(from string) {
@@ -35,8 +34,8 @@ type connection interface {
 	ID() string
 	Interact(
 		ctx context.Context,
-		out <-chan model.NetworkSignal,
-	) <-chan model.IncomeSignal
+		out <-chan networkSignal,
+	) <-chan incomeSignal
 }
 
 type interactionState uint8
@@ -53,8 +52,8 @@ func (i *interaction) setState(new interactionState) {
 	i.state = new
 }
 
-func (i *interaction) applyFilters(in <-chan model.IncomeSignal) <-chan model.IncomeSignal {
-	filters := []func(in <-chan model.IncomeSignal) <-chan model.IncomeSignal{
+func (i *interaction) applyFilters(in <-chan incomeSignal) <-chan incomeSignal {
+	filters := []func(in <-chan incomeSignal) <-chan incomeSignal{
 		i.muteNotVerifiedFilter,
 		i.offersFilter,
 		i.messagesPerMinuteFilter,
@@ -68,7 +67,7 @@ func (i *interaction) applyFilters(in <-chan model.IncomeSignal) <-chan model.In
 	return out
 }
 
-func (n *Network) clusterBroadcast(s model.NetworkSignal) {
+func (n *Network) clusterBroadcast(s networkSignal) {
 	n.interatcionsMu.RLock()
 	defer n.interatcionsMu.RUnlock()
 
@@ -89,7 +88,7 @@ func (n *Network) disconnect(ID string) {
 	member.disconnect()
 }
 
-func (n *Network) send(ID string, s model.NetworkSignal) {
+func (n *Network) send(ID string, s networkSignal) {
 	ctx := span.Init("node.Send to '%s'")
 	logger.Debugf(
 		ctx,
@@ -127,7 +126,7 @@ func (n *Network) addConnection(
 	conn connection,
 	disconnect func(),
 ) {
-	out := make(chan model.NetworkSignal)
+	out := make(chan networkSignal)
 	go func() {
 		<-ctx.Done()
 		close(out)
@@ -157,8 +156,8 @@ func (n *Network) addConnection(
 	}()
 }
 
-func (i *interaction) muteNotVerifiedFilter(in <-chan model.IncomeSignal) <-chan model.IncomeSignal {
-	out := make(chan model.IncomeSignal)
+func (i *interaction) muteNotVerifiedFilter(in <-chan incomeSignal) <-chan incomeSignal {
+	out := make(chan incomeSignal)
 
 	go func() {
 		defer close(out)
@@ -179,8 +178,8 @@ func (i *interaction) muteNotVerifiedFilter(in <-chan model.IncomeSignal) <-chan
 
 }
 
-func (i *interaction) offersFilter(in <-chan model.IncomeSignal) <-chan model.IncomeSignal {
-	out := make(chan model.IncomeSignal)
+func (i *interaction) offersFilter(in <-chan incomeSignal) <-chan incomeSignal {
+	out := make(chan incomeSignal)
 
 	go func() {
 		defer close(out)
@@ -194,7 +193,7 @@ func (i *interaction) offersFilter(in <-chan model.IncomeSignal) <-chan model.In
 				continue
 			}
 
-			if msg.Type != model.SendOfferSignal {
+			if msg.Type != SendOfferSignal {
 				return
 			}
 
@@ -213,8 +212,8 @@ func (i *interaction) offersFilter(in <-chan model.IncomeSignal) <-chan model.In
 	return out
 }
 
-func (i *interaction) messagesPerMinuteFilter(in <-chan model.IncomeSignal) <-chan model.IncomeSignal {
-	out := make(chan model.IncomeSignal)
+func (i *interaction) messagesPerMinuteFilter(in <-chan incomeSignal) <-chan incomeSignal {
+	out := make(chan incomeSignal)
 
 	go func() {
 		defer close(out)

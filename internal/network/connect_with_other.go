@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"time"
-	"udisend/model"
 )
 
 func (n *Network) connectWithOther(ID string) {
@@ -27,8 +26,8 @@ func (n *Network) connectWithOther(ID string) {
 	reqConns := min(minNetworkConns, len(n.cluster.members))
 
 	sendSignReactionKey := rand.Text()
-	n.reactions[sendSignReactionKey] = func(s model.IncomeSignal) bool {
-		if s.Type != model.SendConnectionSignSignal {
+	n.reactions[sendSignReactionKey] = func(s incomeSignal) bool {
+		if s.Type != SendConnectionSignSignal {
 			return false
 		}
 		if ID != string(s.Payload[:257]) {
@@ -41,8 +40,8 @@ func (n *Network) connectWithOther(ID string) {
 			case <-time.After(waitingSignTimeout):
 			case <-signsAreReadyCtx.Done():
 				member.addWaitOffersList(s.From)
-				n.send(ID, model.NetworkSignal{
-					Type:    model.MakeOfferSignal,
+				n.send(ID, networkSignal{
+					Type:    MakeOfferSignal,
 					Payload: s.Payload,
 				})
 			}
@@ -58,8 +57,8 @@ func (n *Network) connectWithOther(ID string) {
 
 	connectionsEstablishedReactKey := rand.Text()
 	connectionsEstablishedCtx, connectionsEstablished := context.WithCancel(context.Background())
-	n.reactions[connectionsEstablishedReactKey] = func(s model.IncomeSignal) bool {
-		if s.Type != model.ConnectionEstablishedSignal {
+	n.reactions[connectionsEstablishedReactKey] = func(s incomeSignal) bool {
+		if s.Type != ConnectionEstablishedSignal {
 			return false
 		}
 		if ID != string(s.Payload) {
@@ -80,8 +79,8 @@ func (n *Network) connectWithOther(ID string) {
 			continue
 		}
 
-		user.send <- model.NetworkSignal{
-			Type:    model.GenerateConnectionSignSignal,
+		user.send <- networkSignal{
+			Type:    GenerateConnectionSignSignal,
 			Payload: []byte(ID),
 		}
 	}
@@ -94,8 +93,8 @@ func (n *Network) connectWithOther(ID string) {
 
 			n.disconnect(ID)
 
-			n.clusterBroadcast(model.NetworkSignal{
-				Type:    model.DisconnectCandidate,
+			n.clusterBroadcast(networkSignal{
+				Type:    DisconnectCandidate,
 				Payload: []byte(ID),
 			})
 		case <-connectionsEstablishedCtx.Done():

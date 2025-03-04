@@ -13,10 +13,10 @@ type Network struct {
 
 	interatcionsMu sync.RWMutex
 	interactions   map[string]*interaction
-	inbox          chan model.IncomeSignal
+	inbox          chan incomeSignal
 
 	reactionsMu sync.Mutex
-	reactions   map[string]func(s model.IncomeSignal) bool
+	reactions   map[string]func(s incomeSignal) bool
 
 	cluster *cluster
 

@@ -7,7 +7,6 @@ import (
 	"encoding/asn1"
 	"sync"
 	"time"
-	"udisend/model"
 	"udisend/pkg/logger"
 	"udisend/pkg/span"
 )
@@ -65,7 +64,7 @@ func (c *challenger) Test(ID string, sign []byte) bool {
 	delete(c.challenges, ID)
 	c.mu.Unlock()
 
-	var sig model.Signature
+	var sig signature
 	if _, err := asn1.Unmarshal(sign, &sig); err != nil {
 		logger.Debugf(ctx, "asn1.Unmarshal: %v", err)
 		return false

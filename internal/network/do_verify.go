@@ -2,12 +2,11 @@ package network
 
 import (
 	"fmt"
-	"udisend/model"
 	"udisend/pkg/logger"
 	"udisend/pkg/span"
 )
 
-func doVerify(n *Network, in model.IncomeSignal) {
+func doVerify(n *Network, in incomeSignal) {
 	ctx := span.Init(fmt.Sprintf("node.doVerify user=%s", in.From))
 	logger.Debugf(ctx, "Start...")
 
@@ -21,8 +20,8 @@ func doVerify(n *Network, in model.IncomeSignal) {
 
 	n.send(
 		in.From,
-		model.NetworkSignal{
-			Type:    model.SolveChallengeSignal,
+		networkSignal{
+			Type:    SolveChallengeSignal,
 			Payload: challenge,
 		},
 	)
@@ -30,34 +29,30 @@ func doVerify(n *Network, in model.IncomeSignal) {
 	logger.Debugf(ctx, "...End")
 }
 
-func newConnection(n *Network, s model.IncomeSignal) {
+func newConnection(n *Network, s incomeSignal) {
 
 }
 
-func generateConnection(n *Network, s model.IncomeSignal) {
+func generateConnection(n *Network, s incomeSignal) {
 
 }
 
-func makeOffer(n *Network, s model.IncomeSignal) {
+func handleOffer(n *Network, s incomeSignal) {
 
 }
 
-func handleOffer(n *Network, s model.IncomeSignal) {
+func handleAnswer(n *Network, s incomeSignal) {
 
 }
 
-func handleAnswer(n *Network, s model.IncomeSignal) {
+func connectionEstablished(n *Network, s incomeSignal) {
 
 }
 
-func connectionEstablished(n *Network, s model.IncomeSignal) {
+func ping(n *Network, s incomeSignal) {
 
 }
 
-func ping(n *Network, s model.IncomeSignal) {
-
-}
-
-func pong(n *Network, s model.IncomeSignal) {
+func pong(n *Network, s incomeSignal) {
 
 }
