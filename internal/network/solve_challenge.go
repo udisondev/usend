@@ -5,12 +5,11 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/asn1"
-	"udisend/model"
 	"udisend/pkg/logger"
 	"udisend/pkg/span"
 )
 
-func solveChallenge(n *Network, in model.IncomeSignal) {
+func solveChallenge(n *Network, in incomeSignal) {
 	ctx := span.Init("solving challange of '%s'", in.From)
 	logger.Debugf(ctx, "Start...")
 
@@ -26,7 +25,7 @@ func solveChallenge(n *Network, in model.IncomeSignal) {
 		return
 	}
 
-	sig := model.Signature{R: r, S: s}
+	sig := signature{R: r, S: s}
 	sigBytes, err := asn1.Marshal(sig)
 	if err != nil {
 		logger.Errorf(ctx, "asn1.Marshal: %v", err)
@@ -35,8 +34,8 @@ func solveChallenge(n *Network, in model.IncomeSignal) {
 
 	n.send(
 		in.From,
-		model.NetworkSignal{
-			Type:    model.TestChallengeSignal,
+		networkSignal{
+			Type:    TestChallengeSignal,
 			Payload: sigBytes,
 		},
 	)

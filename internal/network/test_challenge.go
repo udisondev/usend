@@ -1,12 +1,11 @@
 package network
 
 import (
-	"udisend/model"
 	"udisend/pkg/logger"
 	"udisend/pkg/span"
 )
 
-func testChallenge(n *Network, in model.IncomeSignal) {
+func testChallenge(n *Network, in incomeSignal) {
 	ctx := span.Init("testChallenge of '%s'", in.From)
 	logger.Debugf(ctx, "Start...")
 
