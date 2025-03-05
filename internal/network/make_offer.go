@@ -1,8 +1,9 @@
 package network
 
 import (
+	"encoding/json"
 	"strings"
-	"time"
+	"udisend/pkg/crypt"
 	"udisend/pkg/logger"
 	"udisend/pkg/span"
 
@@ -10,7 +11,8 @@ import (
 )
 
 func makeOffer(n *Network, s incomeSignal) {
-	connSign, err := unmarshalConnectionSign(s.Payload)
+	var connSign connectionSign
+	err := connSign.unmarshal(s.Payload)
 	if err != nil {
 		return
 	}
@@ -28,50 +30,78 @@ func makeOffer(n *Network, s incomeSignal) {
 
 	pc, err := webrtc.NewPeerConnection(config)
 	if err != nil {
-		logger.Errorf(ctx, "webrtc.NewPeerConnection <stubServer:%s>: %v", connSign.Stun, err)
+		logger.Errorf(ctx, "webrtc.NewPeerConnection <stubServer:%s>: %v", connSign.StunServer, err)
 		return
 	}
 
 	dc, err := pc.CreateDataChannel("private", nil)
 	if err != nil {
-		logger.Errorf(ctx, "pc.CreateDataChannel <stubServer:%s>: %v", connSign.Stun, err)
+		logger.Errorf(ctx, "pc.CreateDataChannel <stubServer:%s>: %v", connSign.StunServer, err)
 		pc.Close()
 		return
 	}
 
-	offer, err := pc.CreateOffer(nil)
+	of, err := pc.CreateOffer(nil)
 	if err != nil {
 		dc.Close()
 		pc.Close()
 		return
 	}
 
-	if err := pc.SetLocalDescription(offer); err != nil {
+	if err := pc.SetLocalDescription(of); err != nil {
 		logger.Errorf(ctx, "pc.SetLocalDescription: %v", err)
 		dc.Close()
 		pc.Close()
 		return
 	}
 
-	answered := member.NewAnswerICE(connSign.From, dc, pc)
-	n.waitAnswerMu.Lock()
-	n.waitAnswer[connSign.From] = answered
-	n.waitAnswerMu.Unlock()
+	n.reactionsMu.Lock()
+	defer n.reactionsMu.Unlock()
 
-	go func() {
-		<-time.After(10 * time.Second)
-		logger.Debugf(ctx, "No wait answer yet")
+	n.addReaction(
+		waitRTCAnswer,
+		connSign.Sign,
+		func(nextS incomeSignal) bool {
+			if nextS.Type != HandleAnswerSignal {
+				return false
+			}
+			if nextS.From != s.From {
+				return false
+			}
+			var answ answer
+			answ.unmarshal(nextS.Payload)
 
-		n.waitAnswerMu.Lock()
-		defer n.waitAnswerMu.Unlock()
+			if answ.To != n.config.id {
+				return false
+			}
+			if answ.From != connSign.From {
+				return false
+			}
 
-		_, ok := n.waitAnswer[connSign.From]
-		if ok {
-			delete(n.waitAnswer, connSign.From)
-			dc.Close()
-			pc.Close()
-		}
-	}()
+			remoteSD, err := crypt.DecryptMessage(answ.RemoteSD, n.privateKey)
+			if err != nil {
+				return false
+			}
+
+			var sess webrtc.SessionDescription
+			err = json.Unmarshal(remoteSD, &sess)
+			if err != nil {
+				return false
+			}
+
+			err = pc.SetRemoteDescription(sess)
+			if err != nil {
+				return false
+			}
+
+			return true
+		},
+	)
+
+	n.send(s.From, networkSignal{
+		Type:    SendOfferSignal,
+		Payload: offer{}.marshal(),
+	})
 
 	n.Send(message.Outcome{
 		To: in.From,

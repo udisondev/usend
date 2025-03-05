@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"udisend/pkg/crypt"
 )
 
@@ -50,16 +51,57 @@ type connectionSign struct {
 	PublicKey                  *rsa.PublicKey
 }
 
-func (p connectionSign) Marshal() ([]byte, error) {
+type offer struct {
+	To, From, Sign string
+	RemoteSD       []byte
+}
+
+type answer struct {
+	To, From string
+	RemoteSD []byte
+}
+
+func (o offer) marshal() []byte {
+	return slices.Concat([]byte(o.To), []byte(o.From), []byte(o.Sign), o.RemoteSD)
+}
+
+func (o *offer) unmarshal(b []byte) {
+	pos := 0
+	o.To = string(b[:idLength])
+	pos += idLength
+
+	o.From = string(b[pos : pos+idLength])
+	pos += idLength
+
+	o.Sign = string(b[pos : pos+signLength])
+	pos += signLength
+
+	o.RemoteSD = b[pos:]
+}
+
+func (a *answer) unmarshal(b []byte) {
+	pos := 0
+	a.To = string(b[pos:idLength])
+	pos += idLength
+
+	a.From = string(b[pos : pos+idLength])
+	pos += idLength
+
+	a.RemoteSD = b[pos:]
+
+	return
+}
+
+func (c connectionSign) marshal() ([]byte, error) {
 	// Проверяем длины Receiver и Sender
-	if len(p.To) > idLength {
-		return nil, fmt.Errorf("receiver too long: %d bytes (max %d)", len(p.To), idLength)
+	if len(c.To) > idLength {
+		return nil, fmt.Errorf("receiver too long: %d bytes (max %d)", len(c.To), idLength)
 	}
-	if len(p.From) > idLength {
-		return nil, fmt.Errorf("sender too long: %d bytes (max %d)", len(p.From), idLength)
+	if len(c.From) > idLength {
+		return nil, fmt.Errorf("sender too long: %d bytes (max %d)", len(c.From), idLength)
 	}
 
-	pubKeyBytes, err := crypt.MarshalPublicKey(p.PublicKey)
+	pubKeyBytes, err := crypt.MarshalPublicKey(c.PublicKey)
 	if err != nil {
 		return nil, err
 	}
@@ -70,81 +112,69 @@ func (p connectionSign) Marshal() ([]byte, error) {
 			keySize, minPubKeyLength, maxPubKeyLength)
 	}
 
-	stunAddrLen := len(p.StunServer)
+	stunAddrLen := len(c.StunServer)
 	if stunAddrLen > maxStunServerLength {
 		return nil, fmt.Errorf("STUN address too long: %d bytes (max 128)", stunAddrLen)
 	}
 
-	totalSize := idLength + idLength + 1 + stunAddrLen + 2 + keySize
+	totalSize := idLength + idLength + stunAddrLen + keySize + signLength + 3
 	result := make([]byte, totalSize)
 	pos := 0
 
-	copy(result[pos:pos+idLength], p.To)
+	copy(result[pos:pos+idLength], []byte(c.To))
 	pos += idLength
 
-	copy(result[pos:pos+idLength], p.From)
+	copy(result[pos:pos+idLength], []byte(c.From))
 	pos += idLength
 
 	result[pos] = byte(stunAddrLen)
 	pos++
 
-	copy(result[pos:], p.StunServer)
+	copy(result[pos:], []byte(c.StunServer))
 	pos += stunAddrLen
 
 	binary.BigEndian.PutUint16(result[pos:], uint16(keySize))
 	pos += 2
 
-	copy(result[pos:], pubKeyBytes)
+	copy(result[pos:pos+keySize], pubKeyBytes)
+	pos += keySize
 
+	copy(result[pos:], []byte(c.Sign))
 	return result, nil
 }
 
-func Unmarshal(data []byte) (*connectionSign, error) {
-	if len(data) < idLength+idLength+1 {
-		return nil, errors.New("data too short")
-	}
-
-	p := &connectionSign{}
+func (c *connectionSign) unmarshal(data []byte) error {
 	pos := 0
 
-	p.To = string(data[pos : pos+idLength])
+	c.To = string(data[pos : pos+idLength])
 	pos += idLength
 
-	p.From = string(data[pos : pos+idLength])
+	c.From = string(data[pos : pos+idLength])
 	pos += idLength
 
 	stunAddrLen := int(data[pos])
 	pos++
-
-	if pos+stunAddrLen > len(data) {
-		return nil, errors.New("incomplete packet: invalid STUN address length")
-	}
-	p.StunServer = string(data[pos : pos+stunAddrLen])
+	c.Sign = string(data[pos : pos+stunAddrLen])
 	pos += stunAddrLen
 
-	if pos+2 > len(data) {
-		return nil, errors.New("incomplete packet: missing public key length")
-	}
 	keySize := int(binary.BigEndian.Uint16(data[pos:]))
 	pos += 2
-
-	if keySize > maxPubKeyLength || keySize < minPubKeyLength {
-		return nil, fmt.Errorf("invalid public key size: %d bytes", keySize)
-	}
-
-	if pos+keySize > len(data) {
-		return nil, errors.New("incomplete packet: invalid public key data")
+	if keySize < minPubKeyLength || keySize > maxPubKeyLength {
+		return fmt.Errorf("invalid public key size: %d bytes", keySize)
 	}
 	pubKeyData := data[pos : pos+keySize]
-
 	pubKey, err := crypt.ParsePublicKey(pubKeyData)
 	if err != nil {
-		return nil, err
+		return err
 	}
+	c.PublicKey = pubKey
 
-	p.PublicKey = pubKey
+	if len(data[pos:]) != 256 {
+		return fmt.Errorf("invalid sign length: %d bytes", len(data[pos:]))
+	}
+	c.Sign = string(data[pos:])
 
-	return p, nil
+	return nil
 }
 
 func (st signalType) String() string {

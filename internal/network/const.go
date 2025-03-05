@@ -3,12 +3,27 @@ package network
 import "time"
 
 var (
-	minNetworkConns                      = 5
-	waitingSignTimeout                   = 30 * time.Second
+	minNetworkConns = 5
+
+	waitingSignTimeout = 30 * time.Second
+
+	waitRTCAnswer = 30 * time.Second
+
 	waitingConnectionEstablishingTimeout = 30 * time.Second
-	maxMessagesPerMinute                 = 600
-	idLength                             = 52
-	maxStunServerLength                  = 128
-	maxPubKeyLength                      = 512
-	minPubKeyLength                      = 256
+
+	maxMessagesPerMinute = 600
+
+	maxConnSignLength = idLength*2 + maxPubKeyLength + signLength + maxStunServerLength + 3
+
+	minConnSignLength = maxConnSignLength - signLength - (maxPubKeyLength - minPubKeyLength) + 3
+
+	idLength = 52
+
+	maxStunServerLength = 128
+
+	signLength = 256
+
+	maxPubKeyLength = 512
+
+	minPubKeyLength = 256
 )

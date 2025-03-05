@@ -1,6 +1,7 @@
 package network
 
 import (
+	"time"
 	"udisend/pkg/logger"
 	"udisend/pkg/span"
 )
@@ -47,4 +48,16 @@ func (n *Network) dropReaction(key string) {
 	n.reactionsMu.Lock()
 	defer n.reactionsMu.Unlock()
 	delete(n.reactions, key)
+}
+
+func (n *Network) addReaction(timeout time.Duration, key string, fn func(s incomeSignal) bool) {
+	n.reactionsMu.Lock()
+	defer n.reactionsMu.Unlock()
+
+	n.reactions[key] = fn
+
+	go func() {
+		<-time.After(timeout)
+		n.dropReaction(key)
+	}()
 }

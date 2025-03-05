@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"sync"
-	"udisend/model"
 )
 
 type Network struct {
@@ -17,6 +16,8 @@ type Network struct {
 
 	reactionsMu sync.Mutex
 	reactions   map[string]func(s incomeSignal) bool
+
+	privateKey *rsa.PrivateKey
 
 	cluster *cluster
 
@@ -46,13 +47,13 @@ func New(
 		cluster:      NewCluster(),
 		challenger:   NewChallenger(),
 		interactions: make(map[string]*interaction),
-		inbox:        make(chan model.IncomeSignal),
+		inbox:        make(chan incomeSignal),
 	}
 
 }
 
 func (n *Network) Run(ctx context.Context) {
-	n.inbox = make(chan model.IncomeSignal)
+	n.inbox = make(chan incomeSignal)
 
 	go func() {
 		<-ctx.Done()
