@@ -14,6 +14,7 @@ type networkOpts struct {
 	pubRsa      *rsa.PublicKey
 	pubAuth     *ecdsa.PublicKey
 	privateAuth *ecdsa.PrivateKey
+	stunServer  string
 }
 
 type With func(networkOpts) networkOpts
@@ -36,6 +37,13 @@ func WithCrypt(decode func([]byte) ([]byte, error), pubRSA *rsa.PublicKey) With 
 	return func(o networkOpts) networkOpts {
 		o.decode = decode
 		o.pubRsa = pubRSA
+		return o
+	}
+}
+
+func WithStunServer(v string) With {
+	return func(o networkOpts) networkOpts {
+		o.stunServer = v
 		return o
 	}
 }

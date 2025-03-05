@@ -5,6 +5,8 @@ import "time"
 var (
 	minNetworkConns = 5
 
+	waitOfferTimeout = 30 * time.Second
+
 	waitingSignTimeout = 30 * time.Second
 
 	waitRTCAnswer = 30 * time.Second

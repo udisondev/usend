@@ -62,3 +62,13 @@ func ParsePublicKey(pubPEM []byte) (*rsa.PublicKey, error) {
 
 	return pub.(*rsa.PublicKey), nil
 }
+
+func EncryptMessage(plaintext []byte, publicKey *rsa.PublicKey) ([]byte, error) {
+	return rsa.EncryptOAEP(
+		sha256.New(),
+		rand.Reader,
+		publicKey,
+		plaintext,
+		nil,
+	)
+}

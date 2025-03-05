@@ -98,23 +98,25 @@ func makeOffer(n *Network, s incomeSignal) {
 		},
 	)
 
+	encrypted, err := crypt.EncryptMessage([]byte(of.SDP), connSign.PublicKey)
+	if err != nil {
+		return
+	}
+
+	outBytes, err := connectionOffer{
+		To:        connSign.From,
+		From:      n.config.id,
+		Sign:      connSign.Sign,
+		PublicKey: n.config.pubRsa,
+		RemoteSD:  encrypted,
+	}.marshal()
+	if err != nil {
+		return
+	}
+
 	n.send(s.From, networkSignal{
 		Type:    SendOfferSignal,
-		Payload: offer{}.marshal(),
-	})
-
-	n.Send(message.Outcome{
-		To: in.From,
-		Message: message.Message{
-			Type: message.SendOffer,
-			Text: strings.Join([]string{
-				n.id,
-				connSign.From,
-				connSign.Sign,
-				connSign.Stun,
-				encode(pc.LocalDescription()),
-			}, "|"),
-		},
+		Payload: outBytes,
 	})
 
 	logger.Debugf(ctx, "...End")

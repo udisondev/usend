@@ -3,7 +3,6 @@ package network
 import (
 	"crypto/rsa"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"math/big"
 	"slices"
@@ -51,8 +50,9 @@ type connectionSign struct {
 	PublicKey                  *rsa.PublicKey
 }
 
-type offer struct {
+type connectionOffer struct {
 	To, From, Sign string
+	PublicKey      *rsa.PublicKey
 	RemoteSD       []byte
 }
 
@@ -61,11 +61,36 @@ type answer struct {
 	RemoteSD []byte
 }
 
-func (o offer) marshal() []byte {
-	return slices.Concat([]byte(o.To), []byte(o.From), []byte(o.Sign), o.RemoteSD)
+func (o connectionOffer) marshal() ([]byte, error) {
+	pubKeyBytes, err := crypt.MarshalPublicKey(o.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	totalLen := idLength*2 + len(pubKeyBytes) + len(o.Sign) + len(o.RemoteSD) + 1
+	result := make([]byte, totalLen)
+	pos := 0
+
+	copy(result[pos:idLength], []byte(o.To))
+	pos += idLength
+
+	copy(result[pos:pos+idLength], []byte(o.From))
+	pos += idLength
+
+	copy(result[pos:pos+signLength], []byte(o.Sign))
+	pos += signLength
+
+	binary.BigEndian.PutUint16(result[pos:pos+2], uint16(len(pubKeyBytes)))
+	pos += 2
+
+	copy(result[pos:pos+len(pubKeyBytes)], pubKeyBytes)
+	pos += len(pubKeyBytes)
+
+	copy(result[pos:], o.RemoteSD)
+
+	return result, nil
 }
 
-func (o *offer) unmarshal(b []byte) {
+func (o *connectionOffer) unmarshal(b []byte) {
 	pos := 0
 	o.To = string(b[:idLength])
 	pos += idLength
@@ -92,29 +117,28 @@ func (a *answer) unmarshal(b []byte) {
 	return
 }
 
-func (c connectionSign) marshal() ([]byte, error) {
+func (c connectionSign) marshal() []byte {
 	// Проверяем длины Receiver и Sender
 	if len(c.To) > idLength {
-		return nil, fmt.Errorf("receiver too long: %d bytes (max %d)", len(c.To), idLength)
+		return nil
 	}
 	if len(c.From) > idLength {
-		return nil, fmt.Errorf("sender too long: %d bytes (max %d)", len(c.From), idLength)
+		return nil
 	}
 
 	pubKeyBytes, err := crypt.MarshalPublicKey(c.PublicKey)
 	if err != nil {
-		return nil, err
+		return nil
 	}
 
 	keySize := len(pubKeyBytes)
 	if keySize > maxPubKeyLength || keySize < minPubKeyLength {
-		return nil, fmt.Errorf("invalid public key size: %d bytes (must be between %d and %d)",
-			keySize, minPubKeyLength, maxPubKeyLength)
+		return nil
 	}
 
 	stunAddrLen := len(c.StunServer)
 	if stunAddrLen > maxStunServerLength {
-		return nil, fmt.Errorf("STUN address too long: %d bytes (max 128)", stunAddrLen)
+		return nil
 	}
 
 	totalSize := idLength + idLength + stunAddrLen + keySize + signLength + 3
@@ -130,17 +154,17 @@ func (c connectionSign) marshal() ([]byte, error) {
 	result[pos] = byte(stunAddrLen)
 	pos++
 
-	copy(result[pos:], []byte(c.StunServer))
+	copy(result[pos:pos+stunAddrLen], []byte(c.StunServer))
 	pos += stunAddrLen
 
-	binary.BigEndian.PutUint16(result[pos:], uint16(keySize))
+	binary.BigEndian.PutUint16(result[pos:pos+2], uint16(keySize))
 	pos += 2
 
 	copy(result[pos:pos+keySize], pubKeyBytes)
 	pos += keySize
 
 	copy(result[pos:], []byte(c.Sign))
-	return result, nil
+	return result
 }
 
 func (c *connectionSign) unmarshal(data []byte) error {
