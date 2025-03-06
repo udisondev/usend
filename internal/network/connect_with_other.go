@@ -7,10 +7,7 @@ import (
 )
 
 func (n *Network) connectWithOther(ID string) {
-	n.interatcionsMu.RLock()
-	defer n.interatcionsMu.RUnlock()
-
-	member, ok := n.interactions[ID]
+	member, ok := n.getInteraction(ID)
 	if !ok {
 		return
 	}
@@ -18,61 +15,61 @@ func (n *Network) connectWithOther(ID string) {
 	var confirmedConnections int
 	var signsProvided int
 
-	n.reactionsMu.Lock()
-	defer n.reactionsMu.Unlock()
-
 	signsAreReadyCtx, signsAreReady := context.WithCancel(context.Background())
 
 	reqConns := min(minNetworkConns, len(n.cluster.members))
 
-	sendSignReactionKey := rand.Text()
-	n.reactions[sendSignReactionKey] = func(s incomeSignal) bool {
-		if s.Type != SendConnectionSignSignal {
-			return false
-		}
-		if ID != string(s.Payload[:257]) {
-			return false
-		}
-
-		signsProvided++
-		go func() {
-			select {
-			case <-time.After(waitingSignTimeout):
-			case <-signsAreReadyCtx.Done():
-				member.addWaitOffersList(s.From)
-				n.send(ID, networkSignal{
-					Type:    MakeOfferSignal,
-					Payload: s.Payload,
-				})
+	n.addReaction(waitingSignTimeout,
+		rand.Text(),
+		func(s incomeSignal) bool {
+			if s.Type != SendConnectionSignSignal {
+				return false
 			}
-		}()
+			if ID != string(s.Payload[:idLength]) {
+				return false
+			}
 
-		if signsProvided == reqConns {
-			signsAreReady()
-			return true
-		}
+			signsProvided++
+			go func() {
+				select {
+				case <-time.After(waitingSignTimeout):
+				case <-signsAreReadyCtx.Done():
+					member.addWaitOffersList(s.From)
+					n.send(ID, networkSignal{
+						Type:    MakeOfferSignal,
+						Payload: s.Payload,
+					})
+				}
+			}()
 
-		return false
-	}
+			if signsProvided == reqConns {
+				signsAreReady()
+				return true
+			}
 
-	connectionsEstablishedReactKey := rand.Text()
+			return false
+		})
+
 	connectionsEstablishedCtx, connectionsEstablished := context.WithCancel(context.Background())
-	n.reactions[connectionsEstablishedReactKey] = func(s incomeSignal) bool {
-		if s.Type != ConnectionEstablishedSignal {
-			return false
-		}
-		if ID != string(s.Payload) {
-			return false
-		}
+	n.addReaction(
+		waitingConnectionEstablishingTimeout,
+		rand.Text(),
+		func(s incomeSignal) bool {
+			if s.Type != ConnectionEstablishedSignal {
+				return false
+			}
+			if ID != string(s.Payload) {
+				return false
+			}
 
-		confirmedConnections++
-		if confirmedConnections == reqConns {
-			connectionsEstablished()
-			return true
-		}
+			confirmedConnections++
+			if confirmedConnections == reqConns {
+				connectionsEstablished()
+				return true
+			}
 
-		return false
-	}
+			return false
+		})
 
 	for id, user := range n.interactions {
 		if id == ID {
@@ -88,20 +85,13 @@ func (n *Network) connectWithOther(ID string) {
 	go func() {
 		select {
 		case <-time.After(waitingConnectionEstablishingTimeout):
-			n.dropReaction(sendSignReactionKey)
-			n.dropReaction(connectionsEstablishedReactKey)
-
 			n.disconnect(ID)
-
 			n.clusterBroadcast(networkSignal{
 				Type:    DisconnectCandidate,
 				Payload: []byte(ID),
 			})
 		case <-connectionsEstablishedCtx.Done():
-			n.interatcionsMu.RLock()
-			defer n.interatcionsMu.RUnlock()
-
-			member.setState(Connected)
+			n.compareAndSwapInteractionState(ID, NotConnected, Connected)
 		}
 	}()
 }

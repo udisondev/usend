@@ -2,7 +2,6 @@ package network
 
 import (
 	"encoding/json"
-	"strings"
 	"udisend/pkg/crypt"
 	"udisend/pkg/logger"
 	"udisend/pkg/span"

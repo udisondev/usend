@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/big"
-	"slices"
 	"udisend/pkg/crypt"
 )
 
@@ -102,6 +101,22 @@ func (o *connectionOffer) unmarshal(b []byte) {
 	pos += signLength
 
 	o.RemoteSD = b[pos:]
+}
+
+func (a answer) marshal() ([]byte, error) {
+	totalLen := idLength*2 + len(a.RemoteSD)
+	result := make([]byte, totalLen)
+	pos := 0
+
+	copy(result[pos:idLength], []byte(a.To))
+	pos += idLength
+
+	copy(result[pos:pos+idLength], []byte(a.From))
+	pos += idLength
+
+	copy(result[pos:], a.RemoteSD)
+
+	return result, nil
 }
 
 func (a *answer) unmarshal(b []byte) {

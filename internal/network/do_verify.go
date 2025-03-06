@@ -1,12 +1,10 @@
 package network
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"strings"
-	"udisend/pkg/crypt"
+	"time"
 	"udisend/pkg/logger"
 	"udisend/pkg/span"
 
@@ -24,6 +22,40 @@ func doVerify(n *Network, in incomeSignal) {
 	}
 
 	challenge := n.challenger.Challenge(in.From, authKey)
+
+	n.addReaction(3*time.Second,
+		rand.Text(),
+		func(nextIn incomeSignal) bool {
+			if nextIn.From != in.From {
+				return false
+			}
+			if nextIn.Type != TestChallengeSignal {
+				return false
+			}
+
+			ctx := span.Init("testChallenge of '%s'", in.From)
+			logger.Debugf(ctx, "Start...")
+
+			member, ok := n.getInteraction(in.From)
+			if !ok {
+				return true
+			}
+
+			success := n.challenger.Test(in.From, in.Payload)
+			if !success {
+				logger.Debugf(ctx, "challenge failed")
+				member.disconnect()
+				return true
+			}
+
+			logger.Debugf(ctx, "challenge successful pass")
+
+			member.setState(NotConnected)
+
+			go n.connectWithOther(in.From)
+			logger.Debugf(ctx, "...End")
+			return true
+		})
 
 	n.send(
 		in.From,
@@ -67,7 +99,7 @@ func generateConnectionSign(n *Network, s incomeSignal) {
 				return false
 			}
 
-			go handleOffer(n, offer)
+			go handleOffer(n, s)
 
 			return true
 		},
@@ -110,7 +142,7 @@ func handleOffer(n *Network, s incomeSignal) {
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		if state == webrtc.PeerConnectionStateClosed {
-			disconnect()
+			//			disconnect()
 		}
 		logger.Debugf(ctx, "Connection change state to '%s'", state.String())
 	})
@@ -151,20 +183,18 @@ func handleOffer(n *Network, s incomeSignal) {
 
 	<-gatherComplete
 
+	payload, err := answer{
+		To:       offer.From,
+		From:     n.config.id,
+		RemoteSD: []byte(answ.SDP),
+	}.marshal()
+
+	if err != nil {
+		return
+	}
 	n.send(s.From, networkSignal{
-		Type: SendAnswerSignal,
-		Payload: answer{
-			To:       offer.From,
-			From:     n.config.id,
-			RemoteSD: []byte(answ.SDP),
-		}.marshal(),
-	})
-	n.Send(message.Outcome{
-		To: in.From,
-		Message: message.Message{
-			Type: message.SendAnswer,
-			Text: strings.Join([]string{n.id, offer.From, encode(pc.LocalDescription())}, "|"),
-		},
+		Type:    SendAnswerSignal,
+		Payload: payload,
 	})
 
 	logger.Debugf(ctx, "...End")

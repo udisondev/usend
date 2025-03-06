@@ -44,6 +44,7 @@ const (
 	NotVerified interactionState = iota
 	NotConnected
 	Connected
+	Disconnected
 )
 
 func (i *interaction) setState(new interactionState) {
@@ -77,9 +78,6 @@ func (n *Network) clusterBroadcast(s networkSignal) {
 }
 
 func (n *Network) disconnect(ID string) {
-	n.interatcionsMu.Lock()
-	defer n.interatcionsMu.Unlock()
-
 	member, ok := n.interactions[ID]
 	if !ok {
 		return
@@ -240,4 +238,37 @@ func (i *interaction) messagesPerMinuteFilter(in <-chan incomeSignal) <-chan inc
 	}()
 
 	return out
+}
+
+func (n *Network) getInteraction(ID string) (*interaction, bool) {
+	n.interatcionsMu.RLock()
+	defer n.interatcionsMu.RUnlock()
+	memb, ok := n.interactions[ID]
+	if !ok {
+		return nil, false
+	}
+	return memb, ok
+}
+
+func (n *Network) rangeInteraction(fn func(memb *interaction)) {
+	n.interatcionsMu.RLock()
+	defer n.interatcionsMu.RUnlock()
+
+	for _, memb := range n.interactions {
+		fn(memb)
+	}
+}
+
+func (n *Network) compareAndSwapInteractionState(ID string, old, new interactionState) {
+	n.interatcionsMu.Lock()
+	defer n.interatcionsMu.Unlock()
+
+	memb, ok := n.interactions[ID]
+	if !ok {
+		return
+	}
+	if memb.state != old {
+		return
+	}
+	memb.state = new
 }

@@ -9,13 +9,10 @@ import (
 var handlers = map[signalType]func(*Network, incomeSignal){
 	DoVerifySignal:               doVerify,
 	SolveChallengeSignal:         solveChallenge,
-	TestChallengeSignal:          testChallenge,
 	NewConnectionSignal:          newConnection,
 	GenerateConnectionSignSignal: generateConnectionSign,
 	MakeOfferSignal:              makeOffer,
-	ConnectionEstablishedSignal:  connectionEstablished,
 	PingSignal:                   ping,
-	PongSignal:                   pong,
 }
 
 func (n *Network) dispatch(s incomeSignal) {
