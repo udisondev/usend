@@ -71,16 +71,16 @@ func (n *Network) connectWithOther(ID string) {
 			return false
 		})
 
-	for id, user := range n.interactions {
-		if id == ID {
-			continue
+	n.rangeInteraction(func(memb *interaction) {
+		if memb.id == ID {
+			return
 		}
 
-		user.send <- networkSignal{
+		memb.send <- networkSignal{
 			Type:    GenerateConnectionSignSignal,
 			Payload: []byte(ID),
 		}
-	}
+	})
 
 	go func() {
 		select {
