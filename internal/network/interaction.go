@@ -2,32 +2,52 @@ package network
 
 import (
 	"context"
-	"slices"
+	"crypto/ecdsa"
 	"sync"
 	"time"
 	"udisend/pkg/logger"
 	"udisend/pkg/span"
 )
 
-type interaction struct {
-	id string
-
-	stateMu sync.RWMutex
-	state   interactionState
-
-	connectMu      sync.Mutex
-	waitOffersList []string
-
-	disconnect func()
-
-	send chan<- networkSignal
+type interactions struct {
+	ID             string
+	interatcionsMu sync.RWMutex
+	interactions   map[string]*interaction
+	signUp         func([]byte) []byte
+	cluster        *cluster
+	inbox          chan incomeSignal
+	reactionsMu    sync.Mutex
+	reactions      map[string]func(s incomeSignal) bool
+	stnServer      string
+	privateAuth    *ecdsa.PrivateKey
 }
 
-func (i *interaction) addWaitOffersList(from string) {
-	i.connectMu.Lock()
-	defer i.connectMu.Unlock()
+type interaction struct {
+	id         string
+	mu         sync.RWMutex
+	state      interactionState
+	decode     func(b []byte) ([]byte, error)
+	encode     func(b []byte) ([]byte, error)
+	disconnect func()
+	send       chan<- networkSignal
+}
 
-	i.waitOffersList = append(i.waitOffersList, from)
+func (i *interactions) Run(ctx context.Context, countOfWorkers int) {
+	i.inbox = make(chan incomeSignal)
+
+	go func() {
+		<-ctx.Done()
+		close(i.inbox)
+	}()
+
+	for range countOfWorkers {
+		go func() {
+			for s := range i.inbox {
+				i.dispatch(s)
+			}
+		}()
+	}
+
 }
 
 type connection interface {
@@ -48,15 +68,14 @@ const (
 )
 
 func (i *interaction) setState(new interactionState) {
-	i.stateMu.Lock()
-	defer i.stateMu.Unlock()
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	i.state = new
 }
 
 func (i *interaction) applyFilters(in <-chan incomeSignal) <-chan incomeSignal {
 	filters := []func(in <-chan incomeSignal) <-chan incomeSignal{
 		i.muteNotVerifiedFilter,
-		i.offersFilter,
 		i.messagesPerMinuteFilter,
 	}
 
@@ -68,7 +87,7 @@ func (i *interaction) applyFilters(in <-chan incomeSignal) <-chan incomeSignal {
 	return out
 }
 
-func (n *Network) clusterBroadcast(s networkSignal) {
+func (n *interactions) clusterBroadcast(s networkSignal) {
 	n.interatcionsMu.RLock()
 	defer n.interatcionsMu.RUnlock()
 
@@ -77,7 +96,7 @@ func (n *Network) clusterBroadcast(s networkSignal) {
 	}
 }
 
-func (n *Network) disconnect(ID string) {
+func (n *interactions) disconnect(ID string) {
 	member, ok := n.interactions[ID]
 	if !ok {
 		return
@@ -86,7 +105,7 @@ func (n *Network) disconnect(ID string) {
 	member.disconnect()
 }
 
-func (n *Network) send(ID string, s networkSignal) {
+func (n *interactions) send(ID string, s networkSignal) {
 	ctx := span.Init("node.Send to '%s'")
 	logger.Debugf(
 		ctx,
@@ -119,7 +138,7 @@ func (n *Network) send(ID string, s networkSignal) {
 	}
 }
 
-func (n *Network) addConnection(
+func (n *interactions) addConnection(
 	ctx context.Context,
 	conn connection,
 	disconnect func(),
@@ -154,93 +173,7 @@ func (n *Network) addConnection(
 	}()
 }
 
-func (i *interaction) muteNotVerifiedFilter(in <-chan incomeSignal) <-chan incomeSignal {
-	out := make(chan incomeSignal)
-
-	go func() {
-		defer close(out)
-		for msg := range in {
-			i.stateMu.RLock()
-			state := i.state
-			i.stateMu.RUnlock()
-
-			if state == NotVerified {
-				return
-			}
-			out <- msg
-		}
-
-	}()
-
-	return out
-
-}
-
-func (i *interaction) offersFilter(in <-chan incomeSignal) <-chan incomeSignal {
-	out := make(chan incomeSignal)
-
-	go func() {
-		defer close(out)
-		for msg := range in {
-			i.stateMu.RLock()
-			state := i.state
-			i.stateMu.RUnlock()
-
-			if state == Connected {
-				out <- msg
-				continue
-			}
-
-			if msg.Type != SendOfferSignal {
-				return
-			}
-
-			if !slices.Contains(i.waitOffersList, string(msg.Payload[:257])) {
-				return
-			}
-
-			if i.id != string(msg.Payload[257:513]) {
-				return
-			}
-
-			out <- msg
-		}
-	}()
-
-	return out
-}
-
-func (i *interaction) messagesPerMinuteFilter(in <-chan incomeSignal) <-chan incomeSignal {
-	out := make(chan incomeSignal)
-
-	go func() {
-		defer close(out)
-
-		counter := 0
-		for {
-			select {
-			case <-time.After(time.Minute):
-				counter = 0
-			case msg, ok := <-in:
-				if !ok {
-					return
-				}
-
-				if counter > maxMessagesPerMinute {
-					return
-				}
-
-				counter++
-
-				out <- msg
-			}
-		}
-	}()
-
-	return out
-}
-
-func (n *Network) getInteraction(ID string) (*interaction, bool) {
+func (n *interactions) getInteraction(ID string) (*interaction, bool) {
 	n.interatcionsMu.RLock()
 	defer n.interatcionsMu.RUnlock()
 	memb, ok := n.interactions[ID]
@@ -250,7 +183,7 @@ func (n *Network) getInteraction(ID string) (*interaction, bool) {
 	return memb, ok
 }
 
-func (n *Network) rangeInteraction(fn func(memb *interaction)) {
+func (n *interactions) rangeInteraction(fn func(memb *interaction)) {
 	n.interatcionsMu.RLock()
 	defer n.interatcionsMu.RUnlock()
 
@@ -259,7 +192,7 @@ func (n *Network) rangeInteraction(fn func(memb *interaction)) {
 	}
 }
 
-func (n *Network) compareAndSwapInteractionState(ID string, old, new interactionState) {
+func (n *interactions) compareAndSwapInteractionState(ID string, old, new interactionState) {
 	n.interatcionsMu.Lock()
 	defer n.interatcionsMu.Unlock()
 
@@ -271,4 +204,45 @@ func (n *Network) compareAndSwapInteractionState(ID string, old, new interaction
 		return
 	}
 	memb.state = new
+}
+
+func (i *interactions) clusterSize() int {
+	return len(i.cluster.members)
+}
+
+func (i *interactions) memberAuthKey(ID string) *ecdsa.PublicKey {
+	i.cluster.mu.RLocker()
+	defer i.cluster.mu.RUnlock()
+
+	pubKey, ok := i.cluster.members[ID]
+	if !ok {
+		return nil
+	}
+	return pubKey
+}
+
+func (i *interactions) myID() string {
+	return i.ID
+}
+
+func (i *interactions) stunServer() string {
+	return i.stnServer
+}
+
+func (i *interactions) addReaction(timeout time.Duration, key string, fn func(s incomeSignal) bool) {
+	i.reactionsMu.Lock()
+	defer i.reactionsMu.Unlock()
+
+	i.reactions[key] = fn
+
+	go func() {
+		<-time.After(timeout)
+		i.reactionsMu.Lock()
+		defer i.reactionsMu.Unlock()
+		delete(i.reactions, key)
+	}()
+}
+
+func (i *interactions) privateAuthKey() *ecdsa.PrivateKey {
+	return i.privateAuth
 }

@@ -6,20 +6,15 @@ import (
 	"time"
 )
 
-func (n *Network) connectWithOther(ID string) {
-	member, ok := n.getInteraction(ID)
-	if !ok {
-		return
-	}
-
+func connectWithOther(d dispatcher, ID string) {
 	var confirmedConnections int
 	var signsProvided int
 
 	signsAreReadyCtx, signsAreReady := context.WithCancel(context.Background())
 
-	reqConns := min(minNetworkConns, len(n.cluster.members))
+	reqConns := min(minNetworkConns, d.clusterSize())
 
-	n.addReaction(waitingSignTimeout,
+	d.addReaction(waitingSignTimeout,
 		rand.Text(),
 		func(s incomeSignal) bool {
 			if s.Type != SendConnectionSignSignal {
@@ -34,8 +29,7 @@ func (n *Network) connectWithOther(ID string) {
 				select {
 				case <-time.After(waitingSignTimeout):
 				case <-signsAreReadyCtx.Done():
-					member.addWaitOffersList(s.From)
-					n.send(ID, networkSignal{
+					d.send(ID, networkSignal{
 						Type:    MakeOfferSignal,
 						Payload: s.Payload,
 					})
@@ -51,7 +45,7 @@ func (n *Network) connectWithOther(ID string) {
 		})
 
 	connectionsEstablishedCtx, connectionsEstablished := context.WithCancel(context.Background())
-	n.addReaction(
+	d.addReaction(
 		waitingConnectionEstablishingTimeout,
 		rand.Text(),
 		func(s incomeSignal) bool {
@@ -71,7 +65,7 @@ func (n *Network) connectWithOther(ID string) {
 			return false
 		})
 
-	n.rangeInteraction(func(memb *interaction) {
+	d.rangeInteraction(func(memb *interaction) {
 		if memb.id == ID {
 			return
 		}
@@ -85,13 +79,13 @@ func (n *Network) connectWithOther(ID string) {
 	go func() {
 		select {
 		case <-time.After(waitingConnectionEstablishingTimeout):
-			n.disconnect(ID)
-			n.clusterBroadcast(networkSignal{
+			d.disconnect(ID)
+			d.clusterBroadcast(networkSignal{
 				Type:    DisconnectCandidate,
 				Payload: []byte(ID),
 			})
 		case <-connectionsEstablishedCtx.Done():
-			n.compareAndSwapInteractionState(ID, NotConnected, Connected)
+			d.compareAndSwapInteractionState(ID, NotConnected, Connected)
 		}
 	}()
 }

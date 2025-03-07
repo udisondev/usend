@@ -12,6 +12,7 @@ type networkOpts struct {
 	workersNum  int
 	decode      func([]byte) ([]byte, error)
 	pubRsa      *rsa.PublicKey
+	privateKey  *rsa.PrivateKey
 	pubAuth     *ecdsa.PublicKey
 	privateAuth *ecdsa.PrivateKey
 	stunServer  string

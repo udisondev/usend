@@ -49,18 +49,18 @@ type connectionSign struct {
 	PublicKey                  *rsa.PublicKey
 }
 
-type connectionOffer struct {
+type rtcOffer struct {
 	To, From, Sign string
 	PublicKey      *rsa.PublicKey
 	RemoteSD       []byte
 }
 
-type answer struct {
+type rtcAnswer struct {
 	To, From string
 	RemoteSD []byte
 }
 
-func (o connectionOffer) marshal() ([]byte, error) {
+func (o rtcOffer) marshal() ([]byte, error) {
 	pubKeyBytes, err := crypt.MarshalPublicKey(o.PublicKey)
 	if err != nil {
 		return nil, err
@@ -89,7 +89,7 @@ func (o connectionOffer) marshal() ([]byte, error) {
 	return result, nil
 }
 
-func (o *connectionOffer) unmarshal(b []byte) {
+func (o *rtcOffer) unmarshal(b []byte) {
 	pos := 0
 	o.To = string(b[:idLength])
 	pos += idLength
@@ -103,7 +103,7 @@ func (o *connectionOffer) unmarshal(b []byte) {
 	o.RemoteSD = b[pos:]
 }
 
-func (a answer) marshal() ([]byte, error) {
+func (a rtcAnswer) marshal() ([]byte, error) {
 	totalLen := idLength*2 + len(a.RemoteSD)
 	result := make([]byte, totalLen)
 	pos := 0
@@ -119,7 +119,7 @@ func (a answer) marshal() ([]byte, error) {
 	return result, nil
 }
 
-func (a *answer) unmarshal(b []byte) {
+func (a *rtcAnswer) unmarshal(b []byte) {
 	pos := 0
 	a.To = string(b[pos:idLength])
 	pos += idLength

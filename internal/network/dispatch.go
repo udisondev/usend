@@ -1,21 +1,43 @@
 package network
 
 import (
+	"crypto/ecdsa"
 	"time"
 	"udisend/pkg/logger"
 	"udisend/pkg/span"
 )
 
-var handlers = map[signalType]func(*Network, incomeSignal){
-	DoVerifySignal:               doVerify,
-	SolveChallengeSignal:         solveChallenge,
-	NewConnectionSignal:          newConnection,
-	GenerateConnectionSignSignal: generateConnectionSign,
-	MakeOfferSignal:              makeOffer,
-	PingSignal:                   ping,
+type clusterKeeper interface {
+	clusterSize() int
+	memberAuthKey(ID string) *ecdsa.PublicKey
 }
 
-func (n *Network) dispatch(s incomeSignal) {
+type interactor interface {
+	addReaction(timeout time.Duration, key string, fn func(s incomeSignal) bool)
+	getInteraction(ID string) (*interaction, bool)
+	rangeInteraction(fn func(memb *interaction))
+	send(ID string, msg networkSignal)
+	disconnect(ID string)
+	clusterBroadcast(networkSignal)
+	compareAndSwapInteractionState(ID string, old, new interactionState)
+}
+
+type dispatcher interface {
+	clusterKeeper
+	interactor
+	privateAuthKey() *ecdsa.PrivateKey
+	myID() string
+	stunServer() string
+}
+
+var handlers = map[signalType]func(dispatcher, incomeSignal){
+	DoVerifySignal:               sendChallenge,
+	SolveChallengeSignal:         solveChallenge,
+	GenerateConnectionSignSignal: generateConnectionSign,
+	MakeOfferSignal:              makeOffer,
+}
+
+func (n *interactions) dispatch(s incomeSignal) {
 	ctx := span.Init("network.Dispatch")
 
 	n.reactionsMu.Lock()
