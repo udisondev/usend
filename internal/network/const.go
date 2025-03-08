@@ -15,17 +15,11 @@ var (
 
 	maxMessagesPerMinute = 600
 
-	maxConnSignLength = idLength*2 + maxPubKeyLength + signLength + maxStunServerLength + 3
-
-	minConnSignLength = maxConnSignLength - signLength - (maxPubKeyLength - minPubKeyLength) + 3
-
 	idLength = 52
 
 	maxStunServerLength = 128
 
-	signLength = 256
+	signLength = 52
 
-	maxPubKeyLength = 512
-
-	minPubKeyLength = 256
+	pubKeyLength = 512
 )

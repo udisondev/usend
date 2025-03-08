@@ -17,7 +17,7 @@ func connectWithOther(d dispatcher, ID string) {
 	d.addReaction(waitingSignTimeout,
 		rand.Text(),
 		func(s incomeSignal) bool {
-			if s.Type != SendConnectionSignSignal {
+			if s.Type != SignalTypeSendConnectionSign {
 				return false
 			}
 			if ID != string(s.Payload[:idLength]) {
@@ -30,7 +30,7 @@ func connectWithOther(d dispatcher, ID string) {
 				case <-time.After(waitingSignTimeout):
 				case <-signsAreReadyCtx.Done():
 					d.send(ID, networkSignal{
-						Type:    MakeOfferSignal,
+						Type:    SignalTypeMakeOffer,
 						Payload: s.Payload,
 					})
 				}
@@ -49,7 +49,7 @@ func connectWithOther(d dispatcher, ID string) {
 		waitingConnectionEstablishingTimeout,
 		rand.Text(),
 		func(s incomeSignal) bool {
-			if s.Type != ConnectionEstablishedSignal {
+			if s.Type != SignalTypeConnectionEstablished {
 				return false
 			}
 			if ID != string(s.Payload) {
@@ -71,7 +71,7 @@ func connectWithOther(d dispatcher, ID string) {
 		}
 
 		memb.send <- networkSignal{
-			Type:    GenerateConnectionSignSignal,
+			Type:    SignalTypeGenerateConnectionSign,
 			Payload: []byte(ID),
 		}
 	})
@@ -81,7 +81,7 @@ func connectWithOther(d dispatcher, ID string) {
 		case <-time.After(waitingConnectionEstablishingTimeout):
 			d.disconnect(ID)
 			d.clusterBroadcast(networkSignal{
-				Type:    DisconnectCandidate,
+				Type:    SignalTypeDisconnectCandidate,
 				Payload: []byte(ID),
 			})
 		case <-connectionsEstablishedCtx.Done():

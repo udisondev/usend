@@ -76,7 +76,7 @@ func makeOffer(n dispatcher, s incomeSignal) {
 		waitRTCAnswer,
 		connSign.Sign,
 		func(nextS incomeSignal) bool {
-			if nextS.Type != HandleAnswerSignal {
+			if nextS.Type != SignalTypeHandleAnswer {
 				return false
 			}
 			if nextS.From != s.From {
@@ -112,24 +112,24 @@ func makeOffer(n dispatcher, s incomeSignal) {
 		},
 	)
 
-	encrypted, err := crypt.EncryptMessage([]byte(of.SDP), connSign.PublicKey)
+	encrypted, err := crypt.EncryptMessage([]byte(of.SDP), connSign.PubKey)
 	if err != nil {
 		return
 	}
 
 	outBytes, err := rtcOffer{
-		To:        connSign.From,
-		From:      n.myID(),
-		Sign:      connSign.Sign,
-		PublicKey: publicKey,
-		RemoteSD:  encrypted,
+		To:       connSign.From,
+		From:     n.myID(),
+		Sign:     connSign.Sign,
+		PubKey:   publicKey,
+		RemoteSD: encrypted,
 	}.marshal()
 	if err != nil {
 		return
 	}
 
 	n.send(s.From, networkSignal{
-		Type:    SendOfferSignal,
+		Type:    SignalTypeSendOffer,
 		Payload: outBytes,
 	})
 
@@ -151,7 +151,7 @@ func generateConnectionSign(n dispatcher, s incomeSignal) {
 		waitOfferTimeout,
 		sign,
 		func(nextS incomeSignal) bool {
-			if nextS.Type != HandleOfferSignal {
+			if nextS.Type != SignalTypeHandleOffer {
 				return false
 			}
 			if nextS.From != s.From {
@@ -178,15 +178,19 @@ func generateConnectionSign(n dispatcher, s incomeSignal) {
 		},
 	)
 
+	payload, err := connectionSign{
+		To:         recipient,
+		From:       n.myID(),
+		Sign:       sign,
+		StunServer: n.stunServer(),
+		PubKey:     public,
+	}.marshal()
+	if err != nil {
+		return
+	}
 	n.send(recipient, networkSignal{
-		Type: SendConnectionSignSignal,
-		Payload: connectionSign{
-			To:         recipient,
-			From:       n.myID(),
-			Sign:       sign,
-			StunServer: n.stunServer(),
-			PublicKey:  public,
-		}.marshal(),
+		Type:    SignalTypeSendConnectionSign,
+		Payload: payload,
 	})
 
 	logger.Debugf(ctx, "...End")
@@ -253,18 +257,13 @@ func handleOffer(n dispatcher, c offerer) {
 
 	<-gatherComplete
 
-	payload, err := rtcAnswer{
-		To:       c.offer.From,
-		From:     n.myID(),
-		RemoteSD: []byte(answ.SDP),
-	}.marshal()
-
-	if err != nil {
-		return
-	}
 	n.send(c.offer.From, networkSignal{
-		Type:    SendAnswerSignal,
-		Payload: payload,
+		Type: SignalTypeSendAnswer,
+		Payload: rtcAnswer{
+			To:       c.offer.From,
+			From:     n.myID(),
+			RemoteSD: []byte(answ.SDP),
+		}.marshal(),
 	})
 
 	logger.Debugf(ctx, "...End")

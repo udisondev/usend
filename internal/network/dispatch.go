@@ -31,14 +31,14 @@ type dispatcher interface {
 }
 
 var handlers = map[signalType]func(dispatcher, incomeSignal){
-	DoVerifySignal:               sendChallenge,
-	SolveChallengeSignal:         solveChallenge,
-	GenerateConnectionSignSignal: generateConnectionSign,
-	MakeOfferSignal:              makeOffer,
+	SignalTypeDoVerify:               sendChallenge,
+	SignalTypeSolveChallenge:         solveChallenge,
+	SignalTypeGenerateConnectionSign: generateConnectionSign,
+	SignalTypeMakeOffer:              makeOffer,
 }
 
 func (n *interactions) dispatch(s incomeSignal) {
-	ctx := span.Init("network.Dispatch")
+	ctx := span.Init("dispatch")
 
 	n.reactionsMu.Lock()
 	for k, r := range n.reactions {
@@ -59,22 +59,4 @@ func (n *interactions) dispatch(s incomeSignal) {
 	}
 
 	h(n, s)
-}
-
-func (n *Network) dropReaction(key string) {
-	n.reactionsMu.Lock()
-	defer n.reactionsMu.Unlock()
-	delete(n.reactions, key)
-}
-
-func (n *Network) addReaction(timeout time.Duration, key string, fn func(s incomeSignal) bool) {
-	n.reactionsMu.Lock()
-	defer n.reactionsMu.Unlock()
-
-	n.reactions[key] = fn
-
-	go func() {
-		<-time.After(timeout)
-		n.dropReaction(key)
-	}()
 }

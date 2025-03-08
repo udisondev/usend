@@ -23,7 +23,7 @@ func sendChallenge(d dispatcher, in incomeSignal) {
 			if nextIn.From != in.From {
 				return false
 			}
-			if nextIn.Type != TestChallengeSignal {
+			if nextIn.Type != SignalTypeTestChallenge {
 				return false
 			}
 
@@ -65,7 +65,7 @@ func sendChallenge(d dispatcher, in incomeSignal) {
 	d.send(
 		in.From,
 		networkSignal{
-			Type:    SolveChallengeSignal,
+			Type:    SignalTypeSolveChallenge,
 			Payload: challenge,
 		},
 	)
@@ -99,7 +99,7 @@ func solveChallenge(n dispatcher, in incomeSignal) {
 	n.send(
 		in.From,
 		networkSignal{
-			Type:    TestChallengeSignal,
+			Type:    SignalTypeTestChallenge,
 			Payload: sigBytes,
 		},
 	)

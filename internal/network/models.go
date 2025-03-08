@@ -1,34 +1,36 @@
 package network
 
 import (
+	"bytes"
 	"crypto/rsa"
-	"encoding/binary"
-	"fmt"
 	"math/big"
 	"udisend/pkg/crypt"
 )
 
-type signalType uint8
+/*
+ENUM(
 
-const (
-	DoVerifySignal               signalType = 0x00
-	ProvidePubKeySignal                     = 0x01
-	PubKeyProvidedSignal                    = 0x02
-	SolveChallengeSignal                    = 0x03
-	TestChallengeSignal                     = 0x04
-	NewConnectionSignal                     = 0x05
-	GenerateConnectionSignSignal            = 0x06
-	SendConnectionSignSignal                = 0x07
-	MakeOfferSignal                         = 0x08
-	SendOfferSignal                         = 0x09
-	HandleOfferSignal                       = 0x0A
-	SendAnswerSignal                        = 0x0B
-	HandleAnswerSignal                      = 0x0C
-	ConnectionEstablishedSignal             = 0x0D
-	PingSignal                              = 0x0E
-	PongSignal                              = 0x0F
-	DisconnectCandidate                     = 0x10
+	DoVerify,
+	ProvidePubKey,
+	PubKeyProvided,
+	SolveChallenge,
+	TestChallenge,
+	NewConnection,
+	GenerateConnectionSign,
+	SendConnectionSign,
+	MakeOffer,
+	SendOffer,
+	HandleOffer,
+	SendAnswer,
+	HandleAnswer,
+	ConnectionEstablished,
+	Ping,
+	Pong,
+	DisconnectCandidate,
+
 )
+*/
+type signalType string
 
 type networkSignal struct {
 	Type    signalType
@@ -46,12 +48,12 @@ type signature struct {
 
 type connectionSign struct {
 	To, From, Sign, StunServer string
-	PublicKey                  *rsa.PublicKey
+	PubKey                     *rsa.PublicKey
 }
 
 type rtcOffer struct {
 	To, From, Sign string
-	PublicKey      *rsa.PublicKey
+	PubKey         *rsa.PublicKey
 	RemoteSD       []byte
 }
 
@@ -61,198 +63,112 @@ type rtcAnswer struct {
 }
 
 func (o rtcOffer) marshal() ([]byte, error) {
-	pubKeyBytes, err := crypt.MarshalPublicKey(o.PublicKey)
+	pubKeyBytes, err := crypt.MarshalPublicKey(o.PubKey)
 	if err != nil {
 		return nil, err
 	}
-	totalLen := idLength*2 + len(pubKeyBytes) + len(o.Sign) + len(o.RemoteSD) + 1
-	result := make([]byte, totalLen)
-	pos := 0
+	totalLen := len(pubKeyBytes) + len(o.To) + len(o.From) + len(o.RemoteSD) + 1
+	out := make([]byte, 0, totalLen)
+	out = append(out, []byte(o.To)...)
+	out = append(out, []byte(o.From)...)
+	out = append(out, []byte(o.Sign)...)
+	out = append(out, o.RemoteSD...)
+	out = append(out, '|')
+	out = append(out, pubKeyBytes...)
 
-	copy(result[pos:idLength], []byte(o.To))
-	pos += idLength
-
-	copy(result[pos:pos+idLength], []byte(o.From))
-	pos += idLength
-
-	copy(result[pos:pos+signLength], []byte(o.Sign))
-	pos += signLength
-
-	binary.BigEndian.PutUint16(result[pos:pos+2], uint16(len(pubKeyBytes)))
-	pos += 2
-
-	copy(result[pos:pos+len(pubKeyBytes)], pubKeyBytes)
-	pos += len(pubKeyBytes)
-
-	copy(result[pos:], o.RemoteSD)
-
-	return result, nil
+	return out, nil
 }
 
-func (o *rtcOffer) unmarshal(b []byte) {
-	pos := 0
-	o.To = string(b[:idLength])
-	pos += idLength
-
-	o.From = string(b[pos : pos+idLength])
-	pos += idLength
-
-	o.Sign = string(b[pos : pos+signLength])
-	pos += signLength
-
-	o.RemoteSD = b[pos:]
-}
-
-func (a rtcAnswer) marshal() ([]byte, error) {
-	totalLen := idLength*2 + len(a.RemoteSD)
-	result := make([]byte, totalLen)
-	pos := 0
-
-	copy(result[pos:idLength], []byte(a.To))
-	pos += idLength
-
-	copy(result[pos:pos+idLength], []byte(a.From))
-	pos += idLength
-
-	copy(result[pos:], a.RemoteSD)
-
-	return result, nil
-}
-
-func (a *rtcAnswer) unmarshal(b []byte) {
-	pos := 0
-	a.To = string(b[pos:idLength])
-	pos += idLength
-
-	a.From = string(b[pos : pos+idLength])
-	pos += idLength
-
-	a.RemoteSD = b[pos:]
-
-	return
-}
-
-func (c connectionSign) marshal() []byte {
-	// Проверяем длины Receiver и Sender
-	if len(c.To) > idLength {
-		return nil
+func (o *rtcOffer) unmarshal(b []byte) error {
+	minLen := idLength*2 + signLength + pubKeyLength
+	if len(b) < minLen {
+		return ErrInvalidMessage
 	}
-	if len(c.From) > idLength {
-		return nil
+	del := bytes.Index(b, []byte{'|'})
+	if del < minLen-pubKeyLength {
+		return ErrInvalidMessage
 	}
-
-	pubKeyBytes, err := crypt.MarshalPublicKey(c.PublicKey)
-	if err != nil {
-		return nil
+	if len(b[del:]) != pubKeyLength {
+		return ErrInvalidMessage
 	}
-
-	keySize := len(pubKeyBytes)
-	if keySize > maxPubKeyLength || keySize < minPubKeyLength {
-		return nil
-	}
-
-	stunAddrLen := len(c.StunServer)
-	if stunAddrLen > maxStunServerLength {
-		return nil
-	}
-
-	totalSize := idLength + idLength + stunAddrLen + keySize + signLength + 3
-	result := make([]byte, totalSize)
-	pos := 0
-
-	copy(result[pos:pos+idLength], []byte(c.To))
-	pos += idLength
-
-	copy(result[pos:pos+idLength], []byte(c.From))
-	pos += idLength
-
-	result[pos] = byte(stunAddrLen)
-	pos++
-
-	copy(result[pos:pos+stunAddrLen], []byte(c.StunServer))
-	pos += stunAddrLen
-
-	binary.BigEndian.PutUint16(result[pos:pos+2], uint16(keySize))
-	pos += 2
-
-	copy(result[pos:pos+keySize], pubKeyBytes)
-	pos += keySize
-
-	copy(result[pos:], []byte(c.Sign))
-	return result
-}
-
-func (c *connectionSign) unmarshal(data []byte) error {
-	pos := 0
-
-	c.To = string(data[pos : pos+idLength])
-	pos += idLength
-
-	c.From = string(data[pos : pos+idLength])
-	pos += idLength
-
-	stunAddrLen := int(data[pos])
-	pos++
-	c.Sign = string(data[pos : pos+stunAddrLen])
-	pos += stunAddrLen
-
-	keySize := int(binary.BigEndian.Uint16(data[pos:]))
-	pos += 2
-	if keySize < minPubKeyLength || keySize > maxPubKeyLength {
-		return fmt.Errorf("invalid public key size: %d bytes", keySize)
-	}
-	pubKeyData := data[pos : pos+keySize]
-	pubKey, err := crypt.ParsePublicKey(pubKeyData)
+	pubKey, err := crypt.ParsePublicKey(b[del:])
 	if err != nil {
 		return err
 	}
-	c.PublicKey = pubKey
-
-	if len(data[pos:]) != 256 {
-		return fmt.Errorf("invalid sign length: %d bytes", len(data[pos:]))
-	}
-	c.Sign = string(data[pos:])
-
+	o.PubKey = pubKey
+	pos := 0
+	o.To = string(b[pos:idLength])
+	pos += idLength
+	o.From = string(b[pos : pos+idLength])
+	pos += idLength
+	o.Sign = string(b[pos : pos+signLength])
+	pos += signLength
+	o.RemoteSD = b[pos:del]
 	return nil
 }
 
-func (st signalType) String() string {
-	switch st {
-	case DoVerifySignal:
-		return "DoVerifySignal"
-	case ProvidePubKeySignal:
-		return "ProvidePubKeySignal"
-	case PubKeyProvidedSignal:
-		return "PubKeyProvidedSignal"
-	case SolveChallengeSignal:
-		return "SolveChallengeSignal"
-	case TestChallengeSignal:
-		return "TestChallengeSignal"
-	case NewConnectionSignal:
-		return "NewConnectionSignal"
-	case GenerateConnectionSignSignal:
-		return "GenerateConnectionSignSignal"
-	case SendConnectionSignSignal:
-		return "SendConnectionSignSignal"
-	case MakeOfferSignal:
-		return "MakeOfferSignal"
-	case SendOfferSignal:
-		return "SendOfferSignal"
-	case HandleOfferSignal:
-		return "HandleOfferSignal"
-	case SendAnswerSignal:
-		return "SendAnswerSignal"
-	case HandleAnswerSignal:
-		return "HandleAnswerSignal"
-	case ConnectionEstablishedSignal:
-		return "ConnectionEstablishedSignal"
-	case PingSignal:
-		return "PingSignal"
-	case PongSignal:
-		return "PongSignal"
-	case DisconnectCandidate:
-		return "DisconnectCandidate"
-	default:
-		return "unknown"
+func (a rtcAnswer) marshal() []byte {
+	totalLen := len(a.To) + len(a.From) + len(a.RemoteSD)
+	out := make([]byte, 0, totalLen)
+	out = append(out, []byte(a.To)...)
+	out = append(out, []byte(a.From)...)
+	out = append(out, a.RemoteSD...)
+	return out
+}
+
+func (a *rtcAnswer) unmarshal(b []byte) error {
+	if len(b) < idLength*2 {
+		return ErrInvalidMessage
 	}
+	pos := 0
+	a.To = string(b[pos:idLength])
+	pos += idLength
+	a.From = string(b[pos : pos+idLength])
+	pos += idLength
+	a.RemoteSD = b[pos:]
+	return nil
+}
+
+func (c connectionSign) marshal() ([]byte, error) {
+	pubKeyBytes, err := crypt.MarshalPublicKey(c.PubKey)
+	if err != nil {
+		return nil, err
+	}
+	totalLen := idLength*2 + signLength + len(c.StunServer) + 1 + len(pubKeyBytes)
+	out := make([]byte, 0, totalLen)
+	out = append(out, []byte(c.To)...)
+	out = append(out, []byte(c.From)...)
+	out = append(out, []byte(c.Sign)...)
+	out = append(out, []byte(c.StunServer)...)
+	out = append(out, '|')
+	out = append(out, pubKeyBytes...)
+	return out, nil
+}
+
+func (c *connectionSign) unmarshal(b []byte) error {
+	minLen := idLength*2 + signLength + pubKeyLength
+	if len(b) < minLen {
+		return ErrInvalidMessage
+	}
+	del := bytes.Index(b, []byte{'|'})
+	if del < idLength*2+signLength {
+		return ErrInvalidMessage
+	}
+	if len(b[del:]) != pubKeyLength {
+		return ErrInvalidMessage
+	}
+	pubKey, err := crypt.ParsePublicKey(b[del:])
+	if err != nil {
+		return err
+	}
+	c.PubKey = pubKey
+	pos := 0
+	c.To = string(b[pos:idLength])
+	pos += idLength
+	c.From = string(b[pos : pos+idLength])
+	pos += idLength
+	c.Sign = string(b[pos : pos+signLength])
+	pos += signLength
+	c.StunServer = string(b[pos:del])
+	return nil
 }

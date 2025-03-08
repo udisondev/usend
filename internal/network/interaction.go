@@ -106,10 +106,10 @@ func (n *interactions) disconnect(ID string) {
 }
 
 func (n *interactions) send(ID string, s networkSignal) {
-	ctx := span.Init("node.Send to '%s'")
+	ctx := span.Init("send to '%s'")
 	logger.Debugf(
 		ctx,
-		"Going to send '%s' signal",
+		"'%s' signal",
 		s.Type.String(),
 	)
 
@@ -120,7 +120,7 @@ func (n *interactions) send(ID string, s networkSignal) {
 	if !ok {
 		logger.Debugf(
 			nil,
-			"Member '%s' not found",
+			"Member not found",
 			ID,
 		)
 		return
@@ -131,7 +131,7 @@ func (n *interactions) send(ID string, s networkSignal) {
 	default:
 		logger.Debugf(
 			nil,
-			"Disconnecting '%s' (low throuput)",
+			"Disconnecting (low throuput)",
 			ID,
 		)
 		n.disconnect(ID)
