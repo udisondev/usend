@@ -38,15 +38,18 @@ var handlers = map[signalType]func(dispatcher, incomeSignal){
 }
 
 func (n *interactions) dispatch(s incomeSignal) {
-	ctx := span.Init("dispatch")
+	ctx := span.Init("interactions.dispatch")
+	logger.Debugf(ctx, "Received signal <From:%s> <Type:%s>", s.From, s.Type.String())
 
 	n.reactionsMu.Lock()
+	logger.Debugf(ctx, "Reactions locked")
 	for k, r := range n.reactions {
 		if r(s) {
 			delete(n.reactions, k)
 		}
 	}
 	n.reactionsMu.Unlock()
+	logger.Debugf(ctx, "Reactions unlocked")
 
 	h, ok := handlers[s.Type]
 	if !ok {

@@ -5,14 +5,13 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/asn1"
-	"fmt"
 	"time"
 	"udisend/pkg/logger"
 	"udisend/pkg/span"
 )
 
 func sendChallenge(d dispatcher, in incomeSignal) {
-	ctx := span.Init(fmt.Sprintf("node.doVerify user=%s", in.From))
+	ctx := span.Init("sendChallenge <Recipient:%s>", in.From)
 	logger.Debugf(ctx, "Start...")
 
 	challenge := []byte(rand.Text() + rand.Text())
@@ -30,13 +29,9 @@ func sendChallenge(d dispatcher, in incomeSignal) {
 			ctx := span.Init("testChallenge of '%s'", in.From)
 			logger.Debugf(ctx, "Start...")
 
-			member, ok := d.getInteraction(in.From)
-			if !ok {
-				return true
-			}
 			var sig signature
 			if _, err := asn1.Unmarshal(nextIn.Payload, &sig); err != nil {
-				logger.Debugf(ctx, "asn1.Unmarshal: %v", err)
+				logger.Errorf(ctx, "asn1.Unmarshal: %v", err)
 				return true
 			}
 
@@ -49,14 +44,13 @@ func sendChallenge(d dispatcher, in incomeSignal) {
 				sig.R,
 				sig.S,
 			) {
-				logger.Debugf(ctx, "challenge failed")
+				logger.Warnf(ctx, "Failed!")
 				return true
 			}
 
-			logger.Debugf(ctx, "challenge successful pass")
+			logger.Debugf(ctx, "Success!")
 
-			member.setState(NotConnected)
-
+			d.compareAndSwapInteractionState(in.From, NotVerified, NotConnected)
 			go connectWithOther(d, in.From)
 			logger.Debugf(ctx, "...End")
 			return true

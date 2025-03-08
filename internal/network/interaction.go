@@ -10,16 +10,16 @@ import (
 )
 
 type interactions struct {
-	ID             string
-	interatcionsMu sync.RWMutex
-	interactions   map[string]*interaction
-	signUp         func([]byte) []byte
-	cluster        *cluster
-	inbox          chan incomeSignal
-	reactionsMu    sync.Mutex
-	reactions      map[string]func(s incomeSignal) bool
-	stnServer      string
-	privateAuth    *ecdsa.PrivateKey
+	ID           string
+	mu           sync.RWMutex
+	interactions map[string]*interaction
+	signUp       func([]byte) []byte
+	cluster      *cluster
+	inbox        chan incomeSignal
+	reactionsMu  sync.Mutex
+	reactions    map[string]func(s incomeSignal) bool
+	stnServer    string
+	privateAuth  *ecdsa.PrivateKey
 }
 
 type interaction struct {
@@ -33,10 +33,13 @@ type interaction struct {
 }
 
 func (i *interactions) Run(ctx context.Context, countOfWorkers int) {
+	ctx = span.Extend(ctx, "interactions.Run")
+	logger.Debugf(ctx, "Start...")
 	i.inbox = make(chan incomeSignal)
 
 	go func() {
 		<-ctx.Done()
+		logger.Debugf(ctx, "...End")
 		close(i.inbox)
 	}()
 
@@ -88,21 +91,27 @@ func (i *interaction) applyFilters(in <-chan incomeSignal) <-chan incomeSignal {
 }
 
 func (n *interactions) clusterBroadcast(s networkSignal) {
-	n.interatcionsMu.RLock()
-	defer n.interatcionsMu.RUnlock()
+	n.mu.RLock()
+	defer n.mu.RUnlock()
 
 	for _, member := range n.interactions {
 		member.send <- s
 	}
 }
 
-func (n *interactions) disconnect(ID string) {
-	member, ok := n.interactions[ID]
+func (i *interactions) disconnect(ID string) {
+	ctx := span.Init("interactions.disconnect <ID:%s>", ID)
+	logger.Debugf(ctx, "Searchinb...")
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	member, ok := i.interactions[ID]
 	if !ok {
+		logger.Debugf(ctx, "Not found!")
 		return
 	}
-	delete(n.interactions, ID)
-	member.disconnect()
+	delete(i.interactions, ID)
+	logger.Debugf(ctx, "Removed!")
+	go member.disconnect()
 }
 
 func (n *interactions) send(ID string, s networkSignal) {
@@ -113,8 +122,8 @@ func (n *interactions) send(ID string, s networkSignal) {
 		s.Type.String(),
 	)
 
-	n.interatcionsMu.RLock()
-	defer n.interatcionsMu.RUnlock()
+	n.mu.RLock()
+	defer n.mu.RUnlock()
 
 	m, ok := n.interactions[ID]
 	if !ok {
@@ -148,8 +157,8 @@ func (n *interactions) addConnection(
 		<-ctx.Done()
 		close(out)
 
-		n.interatcionsMu.Lock()
-		defer n.interatcionsMu.Unlock()
+		n.mu.Lock()
+		defer n.mu.Unlock()
 
 		delete(n.interactions, conn.ID())
 	}()
@@ -159,9 +168,9 @@ func (n *interactions) addConnection(
 		disconnect: disconnect,
 	}
 
-	n.interatcionsMu.Lock()
+	n.mu.Lock()
 	n.interactions[conn.ID()] = &i
-	n.interatcionsMu.Unlock()
+	n.mu.Unlock()
 
 	connInbox := conn.Interact(ctx, out)
 
@@ -174,18 +183,22 @@ func (n *interactions) addConnection(
 }
 
 func (n *interactions) getInteraction(ID string) (*interaction, bool) {
-	n.interatcionsMu.RLock()
-	defer n.interatcionsMu.RUnlock()
+	ctx := span.Init("interactions.getInteraction <ID:%s>", ID)
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	logger.Debugf(ctx, "Searching...")
 	memb, ok := n.interactions[ID]
 	if !ok {
+		logger.Warnf(ctx, "Not found!")
 		return nil, false
 	}
+	logger.Debugf(ctx, "Found!")
 	return memb, ok
 }
 
 func (n *interactions) rangeInteraction(fn func(memb *interaction)) {
-	n.interatcionsMu.RLock()
-	defer n.interatcionsMu.RUnlock()
+	n.mu.RLock()
+	defer n.mu.RUnlock()
 
 	for _, memb := range n.interactions {
 		fn(memb)
@@ -193,8 +206,8 @@ func (n *interactions) rangeInteraction(fn func(memb *interaction)) {
 }
 
 func (n *interactions) compareAndSwapInteractionState(ID string, old, new interactionState) {
-	n.interatcionsMu.Lock()
-	defer n.interatcionsMu.Unlock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
 	memb, ok := n.interactions[ID]
 	if !ok {
@@ -211,13 +224,16 @@ func (i *interactions) clusterSize() int {
 }
 
 func (i *interactions) memberAuthKey(ID string) *ecdsa.PublicKey {
+	ctx := span.Init("interactions.memberAuthKey <ID:%s>", ID)
 	i.cluster.mu.RLocker()
 	defer i.cluster.mu.RUnlock()
-
+	logger.Debugf(ctx, "Searching...")
 	pubKey, ok := i.cluster.members[ID]
 	if !ok {
+		logger.Warnf(ctx, "Not found!")
 		return nil
 	}
+	logger.Debugf(ctx, "Found!")
 	return pubKey
 }
 

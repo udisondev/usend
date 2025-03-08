@@ -3,40 +3,49 @@ package network
 import (
 	"context"
 	"crypto/rand"
+	"sync/atomic"
 	"time"
+	"udisend/pkg/logger"
+	"udisend/pkg/span"
 )
 
 func connectWithOther(d dispatcher, ID string) {
-	var confirmedConnections int
-	var signsProvided int
+	ctx := span.Init("connectWithOther <ID:%s>", ID)
+	var confirmedConnections atomic.Int32
+	var signsProvided atomic.Int32
 
 	signsAreReadyCtx, signsAreReady := context.WithCancel(context.Background())
 
 	reqConns := min(minNetworkConns, d.clusterSize())
+	logger.Debugf(ctx, "Required %d connections", reqConns)
 
 	d.addReaction(waitingSignTimeout,
 		rand.Text(),
-		func(s incomeSignal) bool {
-			if s.Type != SignalTypeSendConnectionSign {
+		func(nextS incomeSignal) bool {
+			if nextS.Type != SignalTypeSendConnectionSign {
 				return false
 			}
-			if ID != string(s.Payload[:idLength]) {
+			if ID != string(nextS.Payload[:idLength]) {
 				return false
 			}
-
-			signsProvided++
+			ctx := span.Init("waitingSign for=%s", ID)
+			logger.Debugf(ctx, "Received sign from=%s", nextS.From)
+			signsProvided.Add(1)
 			go func() {
 				select {
 				case <-time.After(waitingSignTimeout):
+					logger.Warnf(ctx, "Timeout!")
 				case <-signsAreReadyCtx.Done():
+					logger.Debugf(ctx, "Going to send sign from=%s", nextS.From)
 					d.send(ID, networkSignal{
 						Type:    SignalTypeMakeOffer,
-						Payload: s.Payload,
+						Payload: nextS.Payload,
 					})
 				}
 			}()
 
-			if signsProvided == reqConns {
+			if int(signsProvided.Load()) == reqConns {
+				logger.Debugf(ctx, "All required signs collected!")
 				signsAreReady()
 				return true
 			}
@@ -56,8 +65,9 @@ func connectWithOther(d dispatcher, ID string) {
 				return false
 			}
 
-			confirmedConnections++
-			if confirmedConnections == reqConns {
+			logger.Debugf(nil, "%s established connection with %s", s.From, ID)
+			confirmedConnections.Add(1)
+			if int(confirmedConnections.Load()) == reqConns {
 				connectionsEstablished()
 				return true
 			}
@@ -77,14 +87,17 @@ func connectWithOther(d dispatcher, ID string) {
 	})
 
 	go func() {
+		ctx := span.Init("waiting connection establishing of %s", ID)
 		select {
 		case <-time.After(waitingConnectionEstablishingTimeout):
+			logger.Warnf(ctx, "Timeout!")
 			d.disconnect(ID)
-			d.clusterBroadcast(networkSignal{
+			go d.clusterBroadcast(networkSignal{
 				Type:    SignalTypeDisconnectCandidate,
 				Payload: []byte(ID),
 			})
 		case <-connectionsEstablishedCtx.Done():
+			logger.Debugf(ctx, "All connections established!")
 			d.compareAndSwapInteractionState(ID, NotConnected, Connected)
 		}
 	}()

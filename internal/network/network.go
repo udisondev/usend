@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"crypto/ecdsa"
+	"udisend/pkg/span"
 )
 
 type Network struct {
@@ -36,5 +37,6 @@ func New(
 }
 
 func (n *Network) Run(ctx context.Context) {
+	ctx = span.Extend(ctx, "network.Run")
 	n.interactions.Run(ctx, n.config.workersNum)
 }
