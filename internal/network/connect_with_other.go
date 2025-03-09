@@ -20,7 +20,6 @@ func connectWithOther(d dispatcher, ID string) {
 	logger.Debugf(ctx, "Required %d connections", reqConns)
 
 	d.addReaction(waitingSignTimeout,
-		rand.Text(),
 		func(nextS incomeSignal) bool {
 			if nextS.Type != SignalTypeSendConnectionSign {
 				return false
@@ -56,7 +55,6 @@ func connectWithOther(d dispatcher, ID string) {
 	connectionsEstablishedCtx, connectionsEstablished := context.WithCancel(context.Background())
 	d.addReaction(
 		waitingConnectionEstablishingTimeout,
-		rand.Text(),
 		func(s incomeSignal) bool {
 			if s.Type != SignalTypeConnectionEstablished {
 				return false

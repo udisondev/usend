@@ -17,9 +17,15 @@ type interactions struct {
 	cluster      *cluster
 	inbox        chan incomeSignal
 	reactionsMu  sync.Mutex
-	reactions    map[string]func(s incomeSignal) bool
+	reactions    []*Reaction
 	stnServer    string
 	privateAuth  *ecdsa.PrivateKey
+}
+
+type Reaction struct {
+	mu   sync.Mutex
+	done bool
+	fn   func(s incomeSignal) bool
 }
 
 type interaction struct {
@@ -245,20 +251,60 @@ func (i *interactions) stunServer() string {
 	return i.stnServer
 }
 
-func (i *interactions) addReaction(timeout time.Duration, key string, fn func(s incomeSignal) bool) {
+func (i *interactions) addReaction(timeout time.Duration, fn func(s incomeSignal) bool) {
 	i.reactionsMu.Lock()
 	defer i.reactionsMu.Unlock()
 
-	i.reactions[key] = fn
+	for idx := range i.reactions {
+		if !i.reactions[idx].done {
+			continue
+		}
+		i.reactions[idx].fn = fn
+		i.reactions[idx].done = false
+		go func() {
+			<-time.After(timeout)
+			i.reactions[idx].mu.Lock()
+			defer i.reactions[idx].mu.Unlock()
+			i.reactions[idx].done = true
+		}()
+		return
+	}
+
+	react := &Reaction{fn: fn}
+	i.reactions = append(i.reactions, react)
 
 	go func() {
 		<-time.After(timeout)
-		i.reactionsMu.Lock()
-		defer i.reactionsMu.Unlock()
-		delete(i.reactions, key)
+		react.mu.Lock()
+		defer react.mu.Unlock()
+		react.done = true
 	}()
 }
 
 func (i *interactions) privateAuthKey() *ecdsa.PrivateKey {
 	return i.privateAuth
+}
+
+func (i *interactions) react(s incomeSignal) {
+	ctx := span.Init("interactions.react")
+	logger.Debugf(ctx, "Reacts locked")
+	i.reactionsMu.Lock()
+	defer func() {
+		i.reactionsMu.Unlock()
+		logger.Debugf(ctx, "Reacts unlocked")
+	}()
+
+	logger.Debugf(ctx, "Iterate reactions...")
+	for idx := range i.reactions {
+		r := i.reactions[idx]
+		go func(r *Reaction, in incomeSignal) {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			if r.done {
+				return
+			}
+			r.done = r.fn(in)
+		}(r, s)
+	}
+	logger.Debugf(ctx, "...Iterating completed")
 }

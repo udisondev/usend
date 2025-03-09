@@ -74,7 +74,6 @@ func makeOffer(n dispatcher, s incomeSignal) {
 	}
 	n.addReaction(
 		waitRTCAnswer,
-		connSign.Sign,
 		func(nextS incomeSignal) bool {
 			if nextS.Type != SignalTypeHandleAnswer {
 				return false

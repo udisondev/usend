@@ -13,7 +13,7 @@ type clusterKeeper interface {
 }
 
 type interactor interface {
-	addReaction(timeout time.Duration, key string, fn func(s incomeSignal) bool)
+	addReaction(timeout time.Duration, fn func(s incomeSignal) bool)
 	getInteraction(ID string) (*interaction, bool)
 	rangeInteraction(fn func(memb *interaction))
 	send(ID string, msg networkSignal)
@@ -37,29 +37,23 @@ var handlers = map[signalType]func(dispatcher, incomeSignal){
 	SignalTypeMakeOffer:              makeOffer,
 }
 
-func (n *interactions) dispatch(s incomeSignal) {
+func (i *interactions) dispatch(s incomeSignal) {
 	ctx := span.Init("interactions.dispatch")
 	logger.Debugf(ctx, "Received signal <From:%s> <Type:%s>", s.From, s.Type.String())
 
-	n.reactionsMu.Lock()
-	logger.Debugf(ctx, "Reactions locked")
-	for k, r := range n.reactions {
-		if r(s) {
-			delete(n.reactions, k)
-		}
-	}
-	n.reactionsMu.Unlock()
-	logger.Debugf(ctx, "Reactions unlocked")
+	logger.Debugf(ctx, "Going to react...")
+	i.react(s)
 
+	logger.Debugf(ctx, "Searching handler...")
 	h, ok := handlers[s.Type]
 	if !ok {
 		logger.Debugf(
 			ctx,
-			"Has no suittable handler for '%s' type",
+			"Has no suittable handler",
 			s.Type.String(),
 		)
 		return
 	}
-
-	h(n, s)
+	logger.Debugf(ctx, "Handler is found!")
+	go h(i, s)
 }
