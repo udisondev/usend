@@ -148,7 +148,6 @@ func generateConnectionSign(n dispatcher, s incomeSignal) {
 
 	n.addReaction(
 		waitOfferTimeout,
-		sign,
 		func(nextS incomeSignal) bool {
 			if nextS.Type != SignalTypeHandleOffer {
 				return false

@@ -17,7 +17,6 @@ func sendChallenge(d dispatcher, in incomeSignal) {
 	challenge := []byte(rand.Text() + rand.Text())
 
 	d.addReaction(3*time.Second,
-		rand.Text(),
 		func(nextIn incomeSignal) bool {
 			if nextIn.From != in.From {
 				return false

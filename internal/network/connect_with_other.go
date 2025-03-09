@@ -2,7 +2,6 @@ package network
 
 import (
 	"context"
-	"crypto/rand"
 	"sync/atomic"
 	"time"
 	"udisend/pkg/logger"
